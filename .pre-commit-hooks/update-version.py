@@ -51,7 +51,10 @@ def update_citation_file(version):
         import re
 
         content = re.sub(
-            r"^version: .*$", f"version: {version}", content, flags=re.MULTILINE
+            r"^version: .*$",
+            f"version: {version}",
+            content,
+            flags=re.MULTILINE,
         )
 
         # Update date-released line

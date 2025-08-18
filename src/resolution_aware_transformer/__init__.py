@@ -1,6 +1,15 @@
-"""resolution_aware_transformer: PyTorch implementation of a Resolution Aware Transformer, designed to take in multiple scales of fixed-resolution images (such as microscopy or medical imaging), with the goal of producing embeddings informed by global context and local details. Utilizes rotary spatial embeddings (RoSE) and spatial grouping attention.
+"""Resolution Aware Transformer: PyTorch implementation.
 
-A Python package for pytorch implementation of a resolution aware transformer, designed to take in multiple scales of fixed-resolution images (such as microscopy or medical imaging), with the goal of producing embeddings informed by global context and local details. utilizes rotary spatial embeddings (rose) and spatial grouping attention..
+Designed to take in multiple scales of fixed-resolution images (such as
+microscopy or medical imaging), with the goal of producing embeddings informed
+by global context and local details. Utilizes rotary spatial embeddings (RoSE)
+and spatial grouping attention.
+
+A Python package for pytorch implementation of a resolution aware transformer,
+designed to take in multiple scales of fixed-resolution images (such as
+microscopy or medical imaging), with the goal of producing embeddings informed
+by global context and local details. utilizes rotary spatial embeddings (rose)
+and spatial grouping attention.
 """
 
 from importlib.metadata import PackageNotFoundError, version

@@ -3,7 +3,11 @@
 import pytest
 
 from resolution_aware_transformer import ResolutionAwareTransformer
-from resolution_aware_transformer.resolution_aware_transformer import helper_function
+
+# Import helper function
+from resolution_aware_transformer.resolution_aware_transformer import (  # noqa: E501
+    helper_function,
+)
 
 
 class TestResolutionAwareTransformer:
@@ -109,7 +113,10 @@ def sample_data():
     }
 
 
-def test_with_fixtures(sample_resolution_aware_transformer_object, sample_data):
+def test_with_fixtures(
+    sample_resolution_aware_transformer_object,
+    sample_data,
+):
     """Test using fixtures."""
     assert sample_resolution_aware_transformer_object.param1 == "fixture_test"
     assert sample_resolution_aware_transformer_object.param2 == 123

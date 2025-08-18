@@ -1,10 +1,10 @@
-# {{repo_name}} Documentation
+# resolution-aware-transformer Documentation
 
-Welcome to the {{repo_name}} documentation!
+Welcome to the resolution-aware-transformer documentation!
 
 ## Overview
 
-{{description}}
+PyTorch implementation of a Resolution Aware Transformer, designed to take in multiple scales of fixed-resolution images (such as microscopy or medical imaging), with the goal of producing embeddings informed by global context and local details. Utilizes rotary spatial embeddings (RoSE) and spatial grouping attention.
 
 ## Table of Contents
 
@@ -16,21 +16,21 @@ Welcome to the {{repo_name}} documentation!
 
 ## Getting Started
 
-{{long_description}}
+A Python package for pytorch implementation of a resolution aware transformer, designed to take in multiple scales of fixed-resolution images (such as microscopy or medical imaging), with the goal of producing embeddings informed by global context and local details. utilizes rotary spatial embeddings (rose) and spatial grouping attention..
 
 ### Installation
 
 ```bash
-pip install {{pypi_package_name}}
+pip install resolution-aware-transformer
 ```
 
 ### Quick Example
 
 ```python
-import {{package_name}}
+import resolution_aware_transformer
 
 # Your example code here
-obj = {{package_name}}.{{main_class}}(param1="example")
+obj = resolution_aware_transformer.ResolutionAwareTransformer(param1="example")
 result = obj.process()
 print(result)
 ```
@@ -39,10 +39,10 @@ print(result)
 
 If you encounter any issues or have questions, please:
 
-1. Check the [documentation](https://github.com/{{github_username}}/{{repo_name}})
-2. Search [existing issues](https://github.com/{{github_username}}/{{repo_name}}/issues)
-3. Create a [new issue](https://github.com/{{github_username}}/{{repo_name}}/issues/new)
+1. Check the [documentation](https://github.com/rhoadesScholar/resolution-aware-transformer)
+2. Search [existing issues](https://github.com/rhoadesScholar/resolution-aware-transformer/issues)
+3. Create a [new issue](https://github.com/rhoadesScholar/resolution-aware-transformer/issues/new)
 
 ## License
 
-This project is licensed under the {{license_name}} License - see the [LICENSE](../LICENSE) file for details.
+This project is licensed under the BSD 3-Clause License License - see the [LICENSE](../LICENSE) file for details.

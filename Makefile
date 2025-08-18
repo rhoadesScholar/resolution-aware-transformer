@@ -27,7 +27,7 @@ test:
 	pytest tests/
 
 test-cov:
-	pytest tests/ --cov={{package_name}} --cov-report=html --cov-report=term-missing --cov-report=xml
+	pytest tests/ --cov=resolution_aware_transformer --cov-report=html --cov-report=term-missing --cov-report=xml
 
 test-fast:
 	pytest tests/ -x -v
@@ -80,4 +80,4 @@ check-all: lint type-check test-cov
 
 # Version info
 version:
-	python -c "import {{package_name}}; print({{package_name}}.__version__)" 2>/dev/null || echo "Package not installed"
+	python -c "import resolution_aware_transformer; print(resolution_aware_transformer.__version__)" 2>/dev/null || echo "Package not installed"

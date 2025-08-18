@@ -2,32 +2,32 @@
 
 ## {{project_description}}
 
-![PyPI - License](https://img.shields.io/pypi/l/{{pypi_package_name}})
-[![CI/CD Pipeline](https://github.com/{{github_username}}/{{repo_name}}/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/{{github_username}}/{{repo_name}}/actions/workflows/ci-cd.yml)
-[![codecov](https://codecov.io/github/{{github_username}}/{{repo_name}}/graph/badge.svg?token={{codecov_token}})](https://codecov.io/github/{{github_username}}/{{repo_name}})
-![PyPI - Version](https://img.shields.io/pypi/v/{{pypi_package_name}})
-![PyPI - Python Version](https://img.shields.io/pypi/pyversions/{{pypi_package_name}})
+![PyPI - License](https://img.shields.io/pypi/l/resolution-aware-transformer)
+[![CI/CD Pipeline](https://github.com/rhoadesScholar/resolution-aware-transformer/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/rhoadesScholar/resolution-aware-transformer/actions/workflows/ci-cd.yml)
+[![codecov](https://codecov.io/github/rhoadesScholar/resolution-aware-transformer/graph/badge.svg?token=)](https://codecov.io/github/rhoadesScholar/resolution-aware-transformer)
+![PyPI - Version](https://img.shields.io/pypi/v/resolution-aware-transformer)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/resolution-aware-transformer)
 
-{{long_description}}
+A Python package for pytorch implementation of a resolution aware transformer, designed to take in multiple scales of fixed-resolution images (such as microscopy or medical imaging), with the goal of producing embeddings informed by global context and local details. utilizes rotary spatial embeddings (rose) and spatial grouping attention..
 
 ## Installation
 
 ### From PyPI
 
 ```bash
-pip install {{pypi_package_name}}
+pip install resolution-aware-transformer
 ```
 
 ### From source
 
 ```bash
-pip install git+https://github.com/{{github_username}}/{{repo_name}}.git
+pip install git+https://github.com/rhoadesScholar/resolution-aware-transformer.git
 ```
 
 ## Usage
 
 ```python
-import {{package_name}}
+import resolution_aware_transformer
 
 # Example usage
 # TODO: Add your usage examples here
@@ -39,8 +39,8 @@ import {{package_name}}
 
 ```bash
 # Clone the repository
-git clone https://github.com/{{github_username}}/{{repo_name}}.git
-cd {{repo_name}}
+git clone https://github.com/rhoadesScholar/resolution-aware-transformer.git
+cd resolution-aware-transformer
 
 # Install in development mode with all dependencies
 make dev-setup
@@ -87,7 +87,7 @@ make check-all
 
 ## License
 
-{{license_name}}. See [LICENSE](LICENSE) for details.
+BSD 3-Clause License. See [LICENSE](LICENSE) for details.
 
 ## Citation
 

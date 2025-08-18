@@ -1,1 +1,1 @@
-"""Test package for {{package_name}}."""
+"""Test package for resolution_aware_transformer."""

@@ -1,12 +1,12 @@
 """Core functionality for resolution_aware_transformer."""
 
-from typing import Optional, Sequence, Type
+from typing import Literal, Optional, Sequence, Type
 
 from spatial_grouping_attention import (
     DenseSpatialGroupingAttention,
     SparseSpatialGroupingAttention,
 )
-from spatial_grouping_attention.utils import to_list, to_tuple
+from spatial_grouping_attention.utils import to_tuple
 import torch
 
 # TODO: Import MultiResolutionDeformableAttention when available
@@ -17,6 +17,9 @@ class ResolutionAwareTransformer(torch.nn.Module):
     """Resolution Aware Transformer class
     Args:
         spatial_dims: The spatial dimensions of the input images. (e.g. 2 or 3)
+        input_features: Number of input features (e.g., channels in an image)
+        proj_kernel_size: Kernel size for the initial projection layer. Default is 7.
+        proj_padding: Padding for the initial projection layer. Default is "same".
         feature_dims: The dimensionality of the embedding space.
         num_blocks: The number of spatial grouping attention and
                     multi-res deformable attention pairs
@@ -54,10 +57,10 @@ class ResolutionAwareTransformer(torch.nn.Module):
         spatial_dims: int = 2,
         input_features: int = 3,
         proj_kernel_size: int | Sequence[int] = 7,
-        proj_padding: int | Sequence[int] = 3,
+        proj_padding: int | Sequence[int] | Literal["same"] = "same",
         feature_dims: int = 128,
         num_blocks: int = 4,
-        attention_type: str = "dense",
+        attention_type: str | Sequence[str] = "dense",
         kernel_size: int | Sequence[int] = 7,
         stride: Optional[int | Sequence[int]] = None,
         num_heads: int = 16,
@@ -78,9 +81,14 @@ class ResolutionAwareTransformer(torch.nn.Module):
         self.proj_kernel_size = to_tuple(
             proj_kernel_size, spatial_dims, dtype_caster=int, allow_nested=False
         )
-        self.proj_padding = to_tuple(
-            proj_padding, spatial_dims, dtype_caster=int, allow_nested=False
-        )
+        if proj_padding == "same":
+            self.proj_padding = tuple(
+                k // 2 for k in self.proj_kernel_size  # type: ignore
+            )
+        else:
+            self.proj_padding = to_tuple(
+                proj_padding, spatial_dims, dtype_caster=int, allow_nested=False
+            )
         self.feature_dims = feature_dims
         self.num_blocks = num_blocks
         self.attention_type = to_tuple(attention_type, num_blocks, allow_nested=False)
@@ -157,15 +165,22 @@ class ResolutionAwareTransformer(torch.nn.Module):
         self.apply(init_transformer_weights)
 
     def _prepare_inputs(self, x, input_spacing, mask):
-        if input_spacing is None:
-            input_spacing = self._default_spacing
-        input_spacing = to_list(input_spacing, self.spatial_dims)
-
         # Make everything lists if not already (for image res pyramid)
         if isinstance(x, torch.Tensor):
             x = [x]
+        assert isinstance(
+            x, Sequence
+        ), "Input x must be a tensor or a sequence of tensors"
+        num_ims = len(x)
+
         if isinstance(mask, torch.Tensor):
             mask = [mask]
+
+        if input_spacing is None:
+            input_spacing = [
+                self._default_spacing,
+            ] * num_ims
+        input_spacing = to_tuple(input_spacing, self.spatial_dims)
         if not isinstance(input_spacing[0], Sequence):
             input_spacing = [input_spacing]
 
@@ -176,8 +191,29 @@ class ResolutionAwareTransformer(torch.nn.Module):
         if mask is not None:
             for i, m in enumerate(mask):
                 mask[i] = self.dilate_mask(m)
+        else:
+            mask = [None] * len(x)
 
-        return x, input_spacing, mask, input_grid_shapes
+        assert len(mask) == num_ims, "Mask length must match number of input images"
+        assert (
+            len(input_spacing) == num_ims
+        ), "Spacing length must match number of input images"
+        assert (
+            len(input_grid_shapes) == num_ims
+        ), "Grid shape length must match number of input images"
+
+        out = [
+            {
+                "x_out": _x,
+                "out_spacing": _spacing,
+                "out_grid_shape": _shape,
+                "mask": _mask,
+            }
+            for _x, _spacing, _shape, _mask in zip(
+                x, input_spacing, input_grid_shapes, mask
+            )  # type: ignore
+        ]
+        return out
 
     def dilate_mask(self, mask: torch.Tensor) -> torch.Tensor:
         if all([k == 1 for k in self.proj_kernel_size]):
@@ -194,22 +230,27 @@ class ResolutionAwareTransformer(torch.nn.Module):
                 self._dilator = pooler(
                     kernel_size=self.proj_kernel_size, stride=1, padding=padding
                 )
-            mask = self._dilator(mask.unsqueeze(1)).squeeze(1) > 0
+            mask = self._dilator(mask.float().unsqueeze(1)).squeeze(1) > 0
         return mask
 
-    def _forward_sga(self, layer, x, input_spacing, mask, input_grid_shapes, out):
+    def _forward_sga(self, layer, out):
         """
         Forward pass for Spatial Grouping Attention (SGA) layers.
         Also accumulates group/key relationships from past layers.
         """
-        for s, (_x, _spacing, _mask, _grid_shape) in enumerate(
-            zip(x, input_spacing, mask, input_grid_shapes)  # type: ignore
-        ):
-            _out = layer(_x, _spacing, _mask, _grid_shape)
-            if len(out) > 0:
-                # Accumulate group/key relationships
+        for s in range(len(out)):
+            _out = layer(
+                out[s]["x_out"],
+                out[s]["out_spacing"],
+                out[s]["out_grid_shape"],
+                out[s]["mask"],
+            )
+            if "attn_q" in out[s]:
+                # Accumulate group/key relationships only if they exist
                 _out["attn_q"] = _out["attn_q"] @ out[s]["attn_q"]
                 _out["attn_k"] = _out["attn_k"] @ out[s]["attn_k"]
+
+            _out["mask"] = None  # Remove mask for next layers
             out[s].update(_out)
 
         return out
@@ -220,35 +261,18 @@ class ResolutionAwareTransformer(torch.nn.Module):
         input_spacing: Optional[Sequence[float] | Sequence[Sequence[float]]] = None,
         mask: Optional[torch.Tensor | Sequence[torch.Tensor]] = None,
     ) -> list[dict[str, torch.Tensor]]:
-        x, input_spacing, mask, input_grid_shapes = self._prepare_inputs(
-            x, input_spacing, mask
-        )  # type: ignore
-        num_ims = len(x)
+        out = self._prepare_inputs(x, input_spacing, mask)  # type: ignore
 
-        for i, _x in enumerate(x):
-            x[i] = self.init_proj(_x)  # x --> [B, C, *spatial_dims]
-            x[i] = x[i].flatten(start_dim=2).transpose(1, 2)  # [B, N, C]
+        for i, _x in enumerate([_out["x_out"] for _out in out]):
+            _x = self.init_proj(_x)  # x --> [B, C, *spatial_dims]
+            out[i]["x_out"] = _x.flatten(2).transpose(1, 2)  # [B, N, C]
 
-        out = []
         for layer_idx in range(self.num_blocks):
             # Spatial Grouping Attention(s)
             out = self._forward_sga(
                 self.sga_layers[layer_idx],
-                x,
-                input_spacing,
-                mask,
-                input_grid_shapes,
                 out,
             )
-
-            # Only do masking on first layer
-            if mask is not None and layer_idx == 0:
-                # Add masks to output
-                for s in range(num_ims):
-                    out[s]["mask"] = mask[s]
-
-                # Then erase
-                mask = None
 
             # Multi-Resolution Deformable Attention
             # TODO: Uncomment when MRDA is available

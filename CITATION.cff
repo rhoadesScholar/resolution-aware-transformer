@@ -5,8 +5,8 @@ authors:
   - family-names: Rhoades
     given-names: Jeff
     orcid: {{author_orcid}}
-version: 2025.8.18.1649
-date-released: 2025-08-18
+version: 2025.8.19.139
+date-released: 2025-08-19
 # doi: 10.5281/zenodo.1234567  # optional, if you have a Zenodo DOI
 repository-code: https://github.com/rhoadesScholar/resolution-aware-transformer
 license: {{license_spdx_id}}

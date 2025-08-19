@@ -31,8 +31,9 @@ keywords = ["pytorch", "python", "transformer", "attention", "computer vision", 
 requires-python = ">=3.10"
 dependencies = [
     # Add your core dependencies here
-    # "numpy>=1.20.0",
-    # "torch>=1.9.0",
+    "torch",
+    "rotary-spatial-embeddings",
+    "spatial-grouping-attention",
 ]
 
 [project.optional-dependencies]

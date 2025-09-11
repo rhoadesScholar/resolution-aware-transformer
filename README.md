@@ -2,7 +2,7 @@
 
 A PyTorch implementation of a resolution-aware transformer designed for multi-scale image analysis, particularly suited for microscopy and medical imaging applications.
 
-![PyPI - License](https://img.shields.io/pypi/l/resolution-aware-transformer)
+![GitHub - License](https://img.shields.io/github/license/rhoadesScholar/resolution-aware-transformer)
 [![CI/CD Pipeline](https://github.com/rhoadesScholar/resolution-aware-transformer/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/rhoadesScholar/resolution-aware-transformer/actions/workflows/ci-cd.yml)
 [![codecov](https://codecov.io/github/rhoadesScholar/resolution-aware-transformer/graph/badge.svg?token=)](https://codecov.io/github/rhoadesScholar/resolution-aware-transformer)
 ![PyPI - Version](https://img.shields.io/pypi/v/resolution-aware-transformer)

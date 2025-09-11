@@ -34,7 +34,8 @@ class TestResolutionAwareTransformer:
             input_features=5,
             feature_dims=256,
             num_blocks=2,
-            attention_type=["dense"] * 2,  # Use dense attention to avoid CUDA issues
+            sga_attention_type=["dense"]
+            * 2,  # Use dense attention to avoid CUDA issues
             num_heads=8,
             iters=5,
             mlp_ratio=2,
@@ -50,27 +51,36 @@ class TestResolutionAwareTransformer:
         assert model.mlp_ratio == 2
         assert model.mlp_dropout == 0.1
 
-    def test_forward_2d_single_image(self):
-        """Test forward pass with 2D single image."""
+    def test_device_consistency(self):
+        """Test that model works on different devices."""
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = ResolutionAwareTransformer(
             spatial_dims=2,
             input_features=3,
-            feature_dims=64,
+            feature_dims=32,
             num_blocks=1,
-            attention_type=["dense"],
-        )
+            sga_attention_type=["dense"],
+            sga_kernel_size=3,
+            stride=1,
+        ).to(device)
 
-        # Create a sample 2D image tensor [B, C, H, W]
-        x = torch.randn(2, 3, 32, 32)
+        x = torch.randn(1, 3, 16, 16).to(device)
 
-        with torch.no_grad():
-            output = model(x)
-
+        output = model(x)
         assert isinstance(output, list)
-        assert len(output) == 1  # Single input image
-        assert isinstance(output[0], dict)
-        assert "attn_q" in output[0]
-        assert "attn_k" in output[0]
+        assert len(output) == 1
+        # Check keys that are actually present in single-block output
+        for key in [
+            "x_out",
+            "out_spacing",
+            "out_grid_shape",
+            "mask",
+            "attn_q",
+            "attn_k",
+        ]:
+            assert key in output[0]
+            if key in ["attn_q", "attn_k"]:
+                assert output[0][key].device == device
 
     def test_forward_3d_single_image(self):
         """Test forward pass with 3D single image."""
@@ -79,7 +89,9 @@ class TestResolutionAwareTransformer:
             input_features=1,
             feature_dims=32,
             num_blocks=1,
-            attention_type=["dense"],
+            sga_attention_type=["dense"],
+            sga_kernel_size=3,
+            stride=1,
         )
 
         # Create a sample 3D image tensor [B, C, D, H, W]
@@ -99,7 +111,9 @@ class TestResolutionAwareTransformer:
             input_features=3,
             feature_dims=64,
             num_blocks=1,
-            attention_type=["dense"],
+            sga_attention_type=["dense"],
+            sga_kernel_size=3,
+            stride=1,
         )
 
         # Create multiple images with different sizes
@@ -125,7 +139,9 @@ class TestResolutionAwareTransformer:
             feature_dims=64,
             num_blocks=1,
             proj_kernel_size=3,
-            attention_type=["dense"],
+            sga_attention_type=["dense"],
+            sga_kernel_size=3,
+            stride=1,
         )
 
         # Create a sample image and mask
@@ -146,7 +162,9 @@ class TestResolutionAwareTransformer:
             input_features=3,
             feature_dims=64,
             num_blocks=1,
-            attention_type=["dense"],
+            sga_attention_type=["dense"],
+            sga_kernel_size=3,
+            stride=1,
         )
 
         x = torch.randn(1, 3, 32, 32)
@@ -181,7 +199,9 @@ class TestResolutionAwareTransformer:
             input_features=3,
             feature_dims=32,
             num_blocks=1,
-            attention_type=["dense"],
+            sga_attention_type=["dense"],
+            sga_kernel_size=3,
+            stride=1,
         )
 
         x = torch.randn(input_shape)
@@ -199,7 +219,9 @@ class TestResolutionAwareTransformer:
             input_features=3,
             feature_dims=32,
             num_blocks=1,
-            attention_type=["dense"],
+            sga_attention_type=["dense"],
+            sga_kernel_size=3,
+            stride=1,
         )
 
         x = torch.randn(1, 3, 16, 16)
@@ -223,8 +245,11 @@ class TestIntegration:
             input_features=1,  # Single channel (e.g., CT scan)
             feature_dims=128,
             num_blocks=2,
-            attention_type=["dense"] * 2,  # Use dense attention to avoid CUDA issues
+            sga_attention_type=["dense"]
+            * 2,  # Use dense attention to avoid CUDA issues
             num_heads=8,
+            sga_kernel_size=3,
+            stride=1,
         )
 
         # Create realistic 3D medical image tensor
@@ -247,7 +272,9 @@ class TestIntegration:
             input_features=3,
             feature_dims=32,
             num_blocks=1,
-            attention_type=["dense"],
+            sga_attention_type=["dense"],
+            sga_kernel_size=3,
+            stride=1,
         )
 
         x = torch.randn(1, 3, 16, 16, requires_grad=True)
@@ -273,8 +300,10 @@ def sample_model_2d():
         input_features=3,
         feature_dims=64,
         num_blocks=1,
-        attention_type=["dense"],
+        sga_attention_type=["dense"],
         num_heads=4,
+        sga_kernel_size=3,
+        stride=1,
     )
 
 
@@ -286,8 +315,10 @@ def sample_model_3d():
         input_features=1,
         feature_dims=32,
         num_blocks=1,
-        attention_type=["dense"],
+        sga_attention_type=["dense"],
         num_heads=2,
+        sga_kernel_size=3,
+        stride=1,
     )
 
 

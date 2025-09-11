@@ -2,15 +2,14 @@
 
 from typing import Literal, Optional, Sequence, Type
 
+# from multi_res_mossa import MultiResMoSSA
+from RoSE import MultiRes_RoSE_Block
 from spatial_grouping_attention import (
     DenseSpatialGroupingAttention,
     SparseSpatialGroupingAttention,
 )
 from spatial_grouping_attention.utils import to_tuple
 import torch
-
-# TODO: Import MultiResolutionDeformableAttention when available
-# from some_module import MultiResolutionDeformableAttention
 
 
 class ResolutionAwareTransformer(torch.nn.Module):
@@ -22,22 +21,22 @@ class ResolutionAwareTransformer(torch.nn.Module):
         proj_padding: Padding for the initial projection layer. Default is "same".
         feature_dims: The dimensionality of the embedding space.
         num_blocks: The number of spatial grouping attention and
-                    multi-res deformable attention pairs
-        attention_type: The type of attention to use (default is "dense").
-                        Options are "dense" or "sparse"
-        kernel_size: Size of the convolutional kernel for strided
+                    mixture of sparse spatial attention pairs
+        sga_attention_type: The type of spatial grouping layer attention
+                        (default is "dense"). Options are "dense" or "sparse"
+        sga_kernel_size: Size of the convolutional kernel for strided
                      convolutions producing the lower res embeddings in each
                      spatial grouping attention layer
-        stride: Stride for the strided convolutions (default is half
-                kernel size)
+        stride: Stride for the spatial grouping attention layer strided convolutions
+                (default is half kernel size)
         num_heads: Number of attention heads
-        iters: Number of iterations for the attention mechanism
+        iters: Number of iterations for the spatial grouping attention mechanism
                (default is 3)
-        mlp_ratio: Ratio of hidden to input/output dimensions in the MLP
+        mlp_ratio: Ratio of hidden to input/output dimensions in MLPs
                    (default is 4)
-        mlp_dropout: Dropout rate for the MLP (default is 0.0)
-        mlp_bias: Whether to use bias in the MLP (default is True)
-        mlp_activation: Activation function for the MLP (default is GELU)
+        mlp_dropout: Dropout rate for MLPs (default is 0.0)
+        mlp_bias: Whether to use bias in MLPs (default is True)
+        mlp_activation: Activation function for MLPs (default is GELU)
         qkv_bias: Whether to use bias in the query/key/value linear
                   layers (default is True)
         base_theta: Base theta value for the rotary position embedding
@@ -46,6 +45,13 @@ class ResolutionAwareTransformer(torch.nn.Module):
                         (default is True)
         init_jitter_std: Standard deviation for initial jitter in the rotary
                          embeddings (default is 0.02)
+        rotary_ratio: Fraction of the feature dimension to rotate
+        frequency_scaling: Frequency scaling method for the rotary position embedding
+                        (default is "sqrt")
+        leading_tokens: Number of context tokens to prepend to input sequences.
+        Useful for CLS or buffer tokens, for example. These tokens are not
+        rotated during rotational position embedding and not included in spatial
+        grouping attention.
         spacing: Default real-world pixel spacing for the input data
                  (default is None, which uses a default spacing of 1.0 for
                  all dimensions). Can be specified at initialization or passed
@@ -60,8 +66,8 @@ class ResolutionAwareTransformer(torch.nn.Module):
         proj_padding: int | Sequence[int] | Literal["same"] = "same",
         feature_dims: int = 128,
         num_blocks: int = 4,
-        attention_type: str | Sequence[str] = "dense",
-        kernel_size: int | Sequence[int] = 7,
+        sga_attention_type: str | Sequence[str] = "dense",
+        sga_kernel_size: int | Sequence[int] = 7,
         stride: Optional[int | Sequence[int]] = None,
         num_heads: int = 16,
         iters: int = 3,
@@ -73,6 +79,9 @@ class ResolutionAwareTransformer(torch.nn.Module):
         base_theta: float = 1e4,
         learnable_rose: bool = True,
         init_jitter_std: float = 0.02,
+        rotary_ratio: float = 0.5,
+        frequency_scaling: str = "sqrt",
+        leading_tokens: int = 0,
         spacing: Optional[float | Sequence[float]] = None,
     ) -> None:
         super().__init__()
@@ -91,14 +100,16 @@ class ResolutionAwareTransformer(torch.nn.Module):
             )
         self.feature_dims = feature_dims
         self.num_blocks = num_blocks
-        self.attention_type = to_tuple(attention_type, num_blocks, allow_nested=False)
-        self.kernel_size = to_tuple(
-            kernel_size, spatial_dims, dtype_caster=int, allow_nested=False
+        self.sga_attention_type = to_tuple(
+            sga_attention_type, num_blocks, allow_nested=False
+        )
+        self.sga_kernel_size = to_tuple(
+            sga_kernel_size, spatial_dims, dtype_caster=int, allow_nested=False
         )
         if stride is None:
             # Default stride is half kernel size, minimum 1
             self.stride = tuple(
-                max(1, k // 2) for k in self.kernel_size  # type: ignore
+                max(1, k // 2) for k in self.sga_kernel_size  # type: ignore
             )
         else:
             self.stride = to_tuple(
@@ -114,6 +125,14 @@ class ResolutionAwareTransformer(torch.nn.Module):
         self.base_theta = base_theta
         self.learnable_rose = learnable_rose
         self.init_jitter_std = init_jitter_std
+        self.rotary_ratio = rotary_ratio
+        self.frequency_scaling = frequency_scaling
+        if leading_tokens > 0:
+            self.leading_tokens = torch.nn.Parameter(
+                torch.rand((1, leading_tokens, feature_dims))
+            )
+        else:
+            self.leading_tokens = None
         if spacing is None:
             spacing = 1.0
         self._default_spacing = to_tuple(spacing, spatial_dims)
@@ -129,11 +148,11 @@ class ResolutionAwareTransformer(torch.nn.Module):
             padding=proj_padding,
         )
         sga_layers = []
-        mrda_layers = []
+        mr_attn_layers = []
         sga_kwargs = {
             "feature_dims": feature_dims,
             "spatial_dims": spatial_dims,
-            "kernel_size": self.kernel_size,
+            "kernel_size": self.sga_kernel_size,
             "num_heads": num_heads,
             "stride": self.stride,
             "iters": iters,
@@ -145,21 +164,36 @@ class ResolutionAwareTransformer(torch.nn.Module):
             "base_theta": base_theta,
             "learnable_rose": learnable_rose,
             "init_jitter_std": init_jitter_std,
+            "rotary_ratio": rotary_ratio,
+            "frequency_scaling": frequency_scaling,
             "spacing": self._default_spacing,
         }
-        # TODO: Define mrda_kwargs when MRDA is available
+        mr_attn_kwargs = {
+            "feature_dims": feature_dims,
+            "num_heads": num_heads,
+            "spatial_dims": spatial_dims,
+            "mlp_ratio": mlp_ratio,
+            "mlp_dropout": mlp_dropout,
+            "mlp_bias": mlp_bias,
+            "mlp_activation": mlp_activation,
+            "qkv_bias": qkv_bias,
+            "base_theta": base_theta,
+            "learnable": learnable_rose,
+            "init_jitter_std": init_jitter_std,
+            "frequency_scaling": frequency_scaling,
+            "rotary_ratio": rotary_ratio,
+        }
         for n in range(num_blocks):
             sga = (
                 DenseSpatialGroupingAttention
-                if self.attention_type[n] == "dense"
+                if self.sga_attention_type[n] == "dense"
                 else SparseSpatialGroupingAttention
             )
             sga_layers.append(sga(**sga_kwargs))
-            # TODO: Uncomment when MRDA is available
-            # mrda_layers.append(MultiResolutionDeformableAttention(...))
+            mr_attn_layers.append(MultiRes_RoSE_Block(**mr_attn_kwargs))
 
         self.sga_layers = torch.nn.ModuleList(sga_layers)
-        self.mrda_layers = torch.nn.ModuleList(mrda_layers)
+        self.mr_attn_layers = torch.nn.ModuleList(mr_attn_layers)
 
         # Initialize weights
         self.apply(init_transformer_weights)
@@ -192,7 +226,7 @@ class ResolutionAwareTransformer(torch.nn.Module):
             for i, m in enumerate(mask):
                 mask[i] = self.dilate_mask(m)
         else:
-            mask = [None] * len(x)
+            mask = [None] * num_ims
 
         assert len(mask) == num_ims, "Mask length must match number of input images"
         assert (
@@ -255,6 +289,36 @@ class ResolutionAwareTransformer(torch.nn.Module):
 
         return out
 
+    def _forward_mr_attn(self, layer, out):
+        """
+        Forward pass for Multi-Resolution Attention layers.
+        """
+        has_leader = False
+        x = []
+        spacings = []
+        grid_shapes = []
+
+        for _out in out:
+            if "x_out" in _out:
+                x += [_out["x_out"]]
+                spacings += [_out["out_spacing"]]
+                grid_shapes += [_out["out_grid_shape"]]
+            elif "leading_tokens" in _out:
+                x = [_out["leading"]] + x
+                has_leader = True
+            else:
+                raise ValueError(f"Unexpected entry in outputs dictionary:\n\t{_out}")
+
+        x = layer(x, spacings, grid_shapes)
+
+        for i, _x in enumerate(x):
+            if i == 0 and has_leader:
+                out[i]["leading_tokens"] = _x
+            else:
+                out[i]["x_out"] = _x
+
+        return out
+
     def forward(
         self,
         x: torch.Tensor | Sequence[torch.Tensor],
@@ -263,7 +327,10 @@ class ResolutionAwareTransformer(torch.nn.Module):
     ) -> list[dict[str, torch.Tensor]]:
         out = self._prepare_inputs(x, input_spacing, mask)  # type: ignore
 
-        for i, _x in enumerate([_out["x_out"] for _out in out]):
+        for i, _out in enumerate(out):
+            if "x_out" not in _out:
+                continue
+            _x = _out["x_out"]
             _x = self.init_proj(_x)  # x --> [B, C, *spatial_dims]
             out[i]["x_out"] = _x.flatten(2).transpose(1, 2)  # [B, N, C]
 
@@ -274,9 +341,10 @@ class ResolutionAwareTransformer(torch.nn.Module):
                 out,
             )
 
-            # Multi-Resolution Deformable Attention
-            # TODO: Uncomment when MRDA is available
-            # x = self.mrda_layers[layer_idx](x, input_spacing)
+            out = self._forward_mr_attn(
+                self.mr_attn_layers[layer_idx],
+                out,
+            )
 
         return out
 

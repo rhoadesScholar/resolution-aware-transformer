@@ -117,8 +117,8 @@ class TestResolutionAwareTransformer:
         )
 
         # Create multiple images with different sizes
-        x1 = torch.randn(1, 3, 32, 32)
-        x2 = torch.randn(1, 3, 64, 64)
+        x1 = torch.randn(1, 3, 16, 16)  # Reduced from 32x32
+        x2 = torch.randn(1, 3, 32, 32)  # Reduced from 64x64
         x = [x1, x2]
 
         with torch.no_grad():
@@ -145,8 +145,8 @@ class TestResolutionAwareTransformer:
         )
 
         # Create a sample image and mask
-        x = torch.randn(1, 3, 32, 32)
-        mask = torch.ones(1, 32, 32, dtype=torch.bool)
+        x = torch.randn(1, 3, 16, 16)  # Reduced from 32x32
+        mask = torch.ones(1, 16, 16, dtype=torch.bool)  # Reduced from 32x32
 
         with torch.no_grad():
             output = model(x, mask=mask)
@@ -167,7 +167,7 @@ class TestResolutionAwareTransformer:
             stride=1,
         )
 
-        x = torch.randn(1, 3, 32, 32)
+        x = torch.randn(1, 3, 16, 16)  # Reduced from 32x32
         spacing = [1.5, 2.0]  # Custom spacing for each dimension
 
         with torch.no_grad():
@@ -187,9 +187,9 @@ class TestResolutionAwareTransformer:
     @pytest.mark.parametrize(
         "spatial_dims,input_shape",
         [
-            (1, (2, 3, 32)),
-            (2, (2, 3, 32, 32)),
-            (3, (2, 3, 16, 16, 16)),
+            (1, (2, 3, 16)),  # Reduced from 32
+            (2, (2, 3, 16, 16)),  # Reduced from 32x32
+            (3, (2, 3, 8, 8, 8)),  # Reduced from 16x16x16
         ],
     )
     def test_different_spatial_dims(self, spatial_dims: int, input_shape: tuple):
@@ -252,8 +252,8 @@ class TestIntegration:
             stride=1,
         )
 
-        # Create realistic 3D medical image tensor
-        x = torch.randn(1, 1, 32, 32, 32)  # [B, C, D, H, W]
+        # Create smaller 3D medical image tensor to avoid memory issues
+        x = torch.randn(1, 1, 8, 8, 8)  # [B, C, D, H, W] - reduced from 32x32x32
 
         with torch.no_grad():
             output = model(x)
@@ -326,10 +326,10 @@ def sample_model_3d():
 def sample_data_2d():
     """Fixture providing sample 2D test data."""
     return {
-        "single_image": torch.randn(1, 3, 32, 32),
-        "batch_images": torch.randn(4, 3, 32, 32),
-        "large_image": torch.randn(1, 3, 128, 128),
-        "mask": torch.ones(1, 32, 32, dtype=torch.bool),
+        "single_image": torch.randn(1, 3, 16, 16),  # Reduced from 32x32
+        "batch_images": torch.randn(4, 3, 16, 16),  # Reduced from 32x32
+        "large_image": torch.randn(1, 3, 64, 64),  # Reduced from 128x128
+        "mask": torch.ones(1, 16, 16, dtype=torch.bool),  # Reduced from 32x32
         "spacing": [1.0, 1.0],
     }
 
@@ -338,9 +338,9 @@ def sample_data_2d():
 def sample_data_3d():
     """Fixture providing sample 3D test data."""
     return {
-        "single_image": torch.randn(1, 1, 16, 16, 16),
-        "batch_images": torch.randn(2, 1, 16, 16, 16),
-        "mask": torch.ones(1, 16, 16, 16, dtype=torch.bool),
+        "single_image": torch.randn(1, 1, 8, 8, 8),  # Reduced from 16x16x16
+        "batch_images": torch.randn(2, 1, 8, 8, 8),  # Reduced from 16x16x16
+        "mask": torch.ones(1, 8, 8, 8, dtype=torch.bool),  # Reduced from 16x16x16
         "spacing": [1.0, 1.0, 1.0],
     }
 

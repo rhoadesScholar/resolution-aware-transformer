@@ -1,0 +1,49 @@
+# RAT Multi-Scale Configuration for ISIC 2018 Segmentation
+
+# Experiment metadata
+experiment_name: "rat_multiscale_isic2018"
+description: "Multi-scale Resolution Aware Transformer for skin lesion segmentation"
+
+# Random seed for reproducibility
+seed: 42
+
+# Data configuration
+data:
+  data_dir: "/path/to/ISIC2018"  # Update this path
+  image_size: 256
+  num_workers: 4
+
+# Model configuration
+model:
+  name: "rat"
+  multi_scale: true
+  scales: [256, 128, 64]
+  spatial_dims: 2
+  input_features: 3
+  feature_dims: 256
+  num_blocks: 4
+  num_heads: 16
+  attention_type: "dense"
+  learnable_rose: true
+  mlp_ratio: 4
+  mlp_dropout: 0.1
+
+# Training configuration
+training:
+  epochs: 100
+  batch_size: 8
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  scheduler: "cosine"
+  loss: "combined"  # Options: bce, dice, combined
+  grad_clip: 1.0
+  save_freq: 10
+
+# Weights & Biases logging (optional)
+wandb:
+  enabled: false
+  project: "rat-medical-segmentation"
+  name: "rat_multiscale_isic2018"
+
+# Debug mode (use subset of data for testing)
+debug: false

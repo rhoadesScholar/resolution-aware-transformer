@@ -3,29 +3,39 @@ repos:
     rev: v4.5.0
     hooks:
       - id: trailing-whitespace
+        exclude: ^experiments/
       - id: end-of-file-fixer
+        exclude: ^experiments/
       - id: check-yaml
+        exclude: ^experiments/
       - id: check-added-large-files
+        exclude: ^experiments/
       - id: check-merge-conflict
+        exclude: ^experiments/
       - id: debug-statements
+        exclude: ^experiments/
       - id: check-toml
+        exclude: ^experiments/
 
   - repo: https://github.com/psf/black
     rev: 23.12.1
     hooks:
       - id: black
         language_version: python3
+        exclude: ^experiments/
 
   - repo: https://github.com/pycqa/isort
     rev: 5.13.2
     hooks:
       - id: isort
         args: ["--profile", "black"]
+        exclude: ^experiments/
 
   - repo: https://github.com/pycqa/flake8
     rev: 7.0.0
     hooks:
       - id: flake8
+        exclude: ^experiments/
 
   # Uncomment to enable mypy type checking
   # - repo: https://github.com/pre-commit/mirrors-mypy

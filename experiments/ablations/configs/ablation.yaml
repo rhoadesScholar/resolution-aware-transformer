@@ -1,0 +1,52 @@
+# Ablation Study Configuration
+
+# Experiment metadata
+experiment_name: "rat_ablation_study"
+description: "Comprehensive ablation study for Resolution Aware Transformer components"
+
+# Random seed for reproducibility
+seed: 42
+
+# Data configuration
+data:
+  data_dir: "/path/to/ISIC2018"  # Update this path
+  image_size: 256
+  num_workers: 4
+
+# Base model configuration (will be modified for each ablation)
+model:
+  base:
+    spatial_dims: 2
+    input_features: 3
+    feature_dims: 256
+    num_blocks: 4
+    num_heads: 16
+    attention_type: "dense"
+    learnable_rose: true
+    mlp_ratio: 4
+    mlp_dropout: 0.1
+    multi_scale: false
+
+# Evaluation configuration
+evaluation:
+  batch_size: 16
+
+# Ablation studies to run
+ablations:
+  # Test different positional encoding methods
+  positional_encoding: true
+
+  # Test dense vs sparse attention
+  attention_type: true
+
+  # Test single vs multi-resolution
+  multi_resolution: true
+
+  # Test different architecture depths
+  architecture_depth: true
+
+  # Test different feature dimensions
+  feature_dims: true
+
+# Quick evaluation mode (use subset for testing)
+quick: false

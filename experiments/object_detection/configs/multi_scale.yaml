@@ -1,0 +1,110 @@
+# Multi-scale object detection configuration
+name: "rat_detection_multi_scale"
+description: "Multi-scale object detection with RAT"
+
+# Model configuration
+model:
+  name: "rat_detection"
+  backbone: "resolution_aware_transformer"
+  num_classes: 91  # COCO classes
+  hidden_dim: 256
+  num_heads: 8
+  num_encoder_layers: 6
+  num_decoder_layers: 6
+  dim_feedforward: 2048
+  dropout: 0.1
+  activation: "relu"
+  normalize_before: false
+
+  # RAT specific - Multi-scale
+  multi_scale: true
+  scales: [800, 400, 200]  # High, medium, low resolution
+  spatial_group_size: 8
+  use_sparse_attention: true
+  positional_encoding: "rose"
+  cross_scale_fusion: true
+
+  # Detection head
+  num_queries: 100
+  bbox_loss_coef: 5.0
+  giou_loss_coef: 2.0
+  class_loss_coef: 1.0
+  focal_alpha: 0.25
+  focal_gamma: 2.0
+
+  # Multi-scale specific
+  scale_weights: [1.0, 0.5, 0.25]  # Weight importance of each scale
+  feature_fusion_method: "attention"  # "concat", "attention", "weighted_sum"
+
+# Data configuration
+data:
+  dataset: "coco"
+  data_dir: "/path/to/coco"
+  image_size: 800
+  max_size: 1333
+  train_split: "train2017"
+  val_split: "val2017"
+  batch_size: 2  # Reduced due to multi-scale memory usage
+  num_workers: 8
+  pin_memory: true
+
+  # Multi-scale processing
+  multi_scale_training: true
+  scales: [800, 400, 200]
+
+  # Data augmentation
+  augmentation:
+    random_flip: 0.5
+    color_jitter: 0.1
+    multi_scale_jitter: 0.1  # Slight scale variation
+    random_crop: false
+    normalize:
+      mean: [0.485, 0.456, 0.406]
+      std: [0.229, 0.224, 0.225]
+
+# Training configuration
+training:
+  num_epochs: 150
+  warmup_epochs: 10
+  optimizer:
+    name: "adamw"
+    lr: 8e-5  # Slightly lower for multi-scale stability
+    weight_decay: 1e-4
+    betas: [0.9, 0.999]
+
+  scheduler:
+    name: "cosine"
+    min_lr: 1e-6
+    warmup_steps: 1000
+
+  gradient_clip: 0.1
+  accumulate_grad_batches: 2  # Compensate for smaller batch size
+  mixed_precision: true
+
+  # Multi-scale training strategy
+  scale_sampling: "random"  # "random", "sequential", "adaptive"
+  scale_schedule:
+    start_epoch: 0
+    single_scale_epochs: 10  # Start with single scale
+    transition_epochs: 20    # Gradual multi-scale introduction
+
+# Evaluation
+eval:
+  eval_interval: 5
+  save_top_k: 3
+  monitor_metric: "mAP@0.5"
+  early_stopping_patience: 25
+
+  # Multi-scale evaluation
+  eval_scales: [800, 400, 200]
+  test_time_augmentation: true
+
+# Logging
+logging:
+  log_interval: 100
+  save_dir: "./logs"
+  experiment_name: "rat_detection_multi"
+  tags: ["detection", "multi_scale", "coco"]
+
+# Random seed
+seed: 42

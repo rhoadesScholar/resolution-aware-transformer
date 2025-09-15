@@ -1,0 +1,88 @@
+# Single-scale object detection configuration
+name: "rat_detection_single_scale"
+description: "Single-scale object detection with RAT"
+
+# Model configuration
+model:
+  name: "rat_detection"
+  backbone: "resolution_aware_transformer"
+  num_classes: 91  # COCO classes
+  hidden_dim: 256
+  num_heads: 8
+  num_encoder_layers: 6
+  num_decoder_layers: 6
+  dim_feedforward: 2048
+  dropout: 0.1
+  activation: "relu"
+  normalize_before: false
+
+  # RAT specific
+  multi_scale: false
+  spatial_group_size: 8
+  use_sparse_attention: true
+  positional_encoding: "rose"  # rotary spatial embeddings
+
+  # Detection head
+  num_queries: 100
+  bbox_loss_coef: 5.0
+  giou_loss_coef: 2.0
+  class_loss_coef: 1.0
+  focal_alpha: 0.25
+  focal_gamma: 2.0
+
+# Data configuration
+data:
+  dataset: "coco"
+  data_dir: "/path/to/coco"
+  image_size: 800
+  max_size: 1333
+  train_split: "train2017"
+  val_split: "val2017"
+  batch_size: 4
+  num_workers: 8
+  pin_memory: true
+
+  # Data augmentation
+  augmentation:
+    random_flip: 0.5
+    color_jitter: 0.1
+    random_crop: false
+    normalize:
+      mean: [0.485, 0.456, 0.406]
+      std: [0.229, 0.224, 0.225]
+
+# Training configuration
+training:
+  num_epochs: 150
+  warmup_epochs: 10
+  optimizer:
+    name: "adamw"
+    lr: 1e-4
+    weight_decay: 1e-4
+    betas: [0.9, 0.999]
+
+  scheduler:
+    name: "step"
+    step_size: 100
+    gamma: 0.1
+
+  gradient_clip: 0.1
+  accumulate_grad_batches: 1
+  mixed_precision: true
+
+# Evaluation
+eval:
+  eval_interval: 5
+  save_top_k: 3
+  monitor_metric: "mAP@0.5"
+  early_stopping_patience: 20
+
+# Logging
+logging:
+  log_interval: 100
+  save_dir: "./logs"
+  experiment_name: "rat_detection_single"
+  tags: ["detection", "single_scale", "coco"]
+
+# Random seed
+seed: 42

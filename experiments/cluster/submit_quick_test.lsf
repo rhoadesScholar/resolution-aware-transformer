@@ -1,0 +1,167 @@
+#!/bin/bash
+#BSUB -J rat_quick_test
+#BSUB -n 8
+#BSUB -gpu "num=2:mode=exclusive_process"
+#BSUB -M 32000
+#BSUB -R "span[hosts=1]"
+#BSUB -R "rusage[mem=32000]"
+#BSUB -o /Users/rhoadesj/Repos/resolution-aware-transformer/results/lsf_logs/rat_quick_test_%J.out
+#BSUB -e /Users/rhoadesj/Repos/resolution-aware-transformer/results/lsf_logs/rat_quick_test_%J.err
+#BSUB -q gpu
+#BSUB -x
+
+# RAT Experiments - Quick Test
+# Auto-generated from configuration
+
+set -e
+
+echo "======================================================"
+echo "RAT Quick Test - Node Setup and Training"
+echo "Job ID: $LSB_JOBID"
+echo "Host: $LSB_HOSTS"
+echo "Queue: $LSB_QUEUE"
+echo "======================================================"
+
+# Configuration from .config file
+LOCAL_DATA_DIR="/tmp/rat_data/rat_data_$LSB_JOBID"
+NETWORK_RESULTS_DIR="/Users/rhoadesj/Repos/resolution-aware-transformer/results"
+NETWORK_CHECKPOINTS_DIR="/Users/rhoadesj/Repos/resolution-aware-transformer/checkpoints"
+NUM_GPUS=2
+
+# Environment setup
+echo "Setting up environment..."
+source ~/.bashrc
+
+echo "LSF GPU allocation:"
+echo "LSB_HOSTS: $LSB_HOSTS"
+echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
+
+echo "Python version: $(python --version)"
+echo "PyTorch version: $(python -c 'import torch; print(torch.__version__)')"
+echo "CUDA available: $(python -c 'import torch; print(torch.cuda.is_available())')"
+echo "CUDA devices: $(python -c 'import torch; print(torch.cuda.device_count())')"
+
+# Create necessary directories
+echo "Creating directories..."
+mkdir -p "$LOCAL_DATA_DIR"
+mkdir -p "$NETWORK_RESULTS_DIR/lsf_logs"
+mkdir -p "$NETWORK_RESULTS_DIR/tensorboard_logs"
+mkdir -p "$NETWORK_RESULTS_DIR/experiment_logs"
+mkdir -p "$NETWORK_CHECKPOINTS_DIR"
+
+# Setup data
+echo "Setting up data..."
+    echo "Creating sample ISIC2018 dataset..."
+    python experiments/scripts/setup_isic.py \
+        --sample_only \
+        --output_dir "$LOCAL_DATA_DIR/sample_ISIC2018" \
+        --num_samples 100
+
+    echo "Creating sample COCO2017 dataset..."
+    python experiments/scripts/setup_coco.py \
+        --sample_only \
+        --output_dir "$LOCAL_DATA_DIR/sample_COCO2017" \
+        --num_samples 50
+
+echo "Local data setup completed. Directory size:"
+du -sh "$LOCAL_DATA_DIR"
+
+# Update configurations for cluster
+echo "Updating configurations for cluster..."
+python experiments/scripts/update_cluster_configs.py \
+    --data_dir "$LOCAL_DATA_DIR" \
+    --results_dir "$NETWORK_RESULTS_DIR" \
+    --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR" \
+    --num_gpus "$NUM_GPUS"
+
+# Set distributed training environment variables
+export MASTER_ADDR=$(hostname)
+export MASTER_PORT=12355
+export WORLD_SIZE=$NUM_GPUS
+
+echo "Starting distributed training..."
+echo "Master address: $MASTER_ADDR"
+echo "Master port: $MASTER_PORT"
+echo "World size: $WORLD_SIZE"
+
+# Run medical segmentation experiments
+echo "Running medical segmentation experiments..."
+torchrun \
+    --nnodes=1 \
+    --nproc_per_node=$NUM_GPUS \
+    --master_addr=$MASTER_ADDR \
+    --master_port=12355 \
+    experiments/train_distributed.py \
+    --config_dir experiments/medical_segmentation/configs \
+    --results_dir "$NETWORK_RESULTS_DIR" \
+    --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"
+
+# Run object detection experiments (if configs exist)
+if [ -d "experiments/object_detection/configs" ]; then
+    echo "Running object detection experiments..."
+    torchrun \
+        --nnodes=1 \
+        --nproc_per_node=$NUM_GPUS \
+        --master_addr=$MASTER_ADDR \
+        --master_port=12356 \
+        experiments/train_distributed.py \
+        --config_dir experiments/object_detection/configs \
+        --results_dir "$NETWORK_RESULTS_DIR" \
+        --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"
+fi
+
+# Run ablation studies
+if [ -d "experiments/ablations/configs" ]; then
+    echo "Running ablation studies..."
+    torchrun \
+        --nnodes=1 \
+        --nproc_per_node=$NUM_GPUS \
+        --master_addr=$MASTER_ADDR \
+        --master_port=12357 \
+        experiments/train_distributed.py \
+        --config_dir experiments/ablations/configs \
+        --results_dir "$NETWORK_RESULTS_DIR" \
+        --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"
+fi
+
+echo "Training completed successfully!"
+
+# Save experiment summary
+echo "Saving experiment summary..."
+SUMMARY_FILE="$NETWORK_RESULTS_DIR/experiment_summary_$LSB_JOBID.txt"
+cat > "$SUMMARY_FILE" << EOF
+RAT Quick Test Summary
+======================
+Job ID: $LSB_JOBID
+Host: $LSB_HOSTS
+Queue: $LSB_QUEUE
+Start Time: $(date)
+GPUs Used: $NUM_GPUS
+Local Data Dir: $LOCAL_DATA_DIR
+Results Dir: $NETWORK_RESULTS_DIR
+Checkpoints Dir: $NETWORK_CHECKPOINTS_DIR
+
+Configuration:
+- Use sample data: True
+- Mixed precision: True
+- Distributed backend: nccl
+
+Datasets:
+$(ls -la "$LOCAL_DATA_DIR")
+
+GPU Information:
+$(nvidia-smi --query-gpu=name,memory.total,memory.used --format=csv)
+EOF
+
+echo "Experiment summary saved to: $SUMMARY_FILE"
+
+# Clean up local data to free space
+echo "Cleaning up local data..."
+rm -rf "$LOCAL_DATA_DIR"
+
+echo "======================================================"
+echo "RAT Quick Test Completed Successfully!"
+echo "Results: $NETWORK_RESULTS_DIR"
+echo "Checkpoints: $NETWORK_CHECKPOINTS_DIR"
+echo "TensorBoard: tensorboard --logdir $NETWORK_RESULTS_DIR/tensorboard_logs"
+echo "======================================================"

@@ -1,0 +1,103 @@
+# RESAVE AS .config in experiments/ directory and edit paths as needed
+
+# RAT Experiments Configuration File
+# This file controls cluster settings, resource allocation, and paths for RAT experiments
+
+[cluster]
+# LSF job scheduler settings
+queue = gpu
+# walltime_hours = 48  # Removed - no time limit
+# walltime_hours_quick = 2  # Removed - no time limit
+
+# GPU allocation
+num_gpus_full = 8
+num_gpus_quick = 2
+gpu_mode = exclusive_process
+
+# CPU and memory settings
+cpus_per_gpu = 4
+memory_mb_per_gpu = 16000
+span_hosts = 1
+
+# Node requirements
+exclusive_node = true
+
+[paths]
+# Base directories (relative to repo root or absolute)
+repo_root = /Users/rhoadesj/Repos/resolution-aware-transformer
+data_dir = /Users/rhoadesj/Repos/resolution-aware-transformer/data  # For local development/testing only
+results_dir = /Users/rhoadesj/Repos/resolution-aware-transformer/results
+checkpoints_dir = /Users/rhoadesj/Repos/resolution-aware-transformer/checkpoints
+
+# Logging subdirectories
+lsf_logs_subdir = lsf_logs
+tensorboard_logs_subdir = tensorboard_logs
+experiment_logs_subdir = experiment_logs
+
+# Temporary/local storage (for cluster nodes - where actual data processing happens)
+local_temp_dir = /tmp/rat_data  # This is where data is copied/created on cluster nodes
+use_local_storage = true  # Always use local temp storage for cluster jobs
+
+[datasets]
+# Dataset sources and configurations
+isic_source_dir = 
+coco_source_dir = 
+use_sample_data = true
+
+# Sample dataset sizes (for testing)
+isic_sample_size = 100
+coco_sample_size = 50
+
+[training]
+# Default training parameters
+mixed_precision = true
+distributed_backend = nccl
+find_unused_parameters = false
+
+# Port configuration for distributed training
+master_port_base = 12355
+port_increment = 1
+
+[logging]
+# Logging backend and configuration
+backend = tensorboard
+log_level = INFO
+save_checkpoints = true
+checkpoint_frequency = 5
+
+# TensorBoard settings
+tensorboard_host = 0.0.0.0
+tensorboard_port = 6006
+
+[experiments]
+# Experiment configurations to run
+medical_segmentation = true
+object_detection = true
+ablation_studies = true
+robustness_tests = false
+
+# Job execution mode
+parallel_jobs = true  # true = separate LSF job per experiment type, false = sequential in single job
+job_dependencies = false  # true = make jobs dependent on previous completion, false = fully parallel
+
+# Experiment-specific settings
+medical_seg_epochs = 100
+object_det_epochs = 80
+ablation_epochs = 50
+
+[environment]
+# Environment setup
+conda_env = 
+python_path = 
+cuda_version = 
+modules_to_load = 
+
+# SLURM/LSF compatibility
+scheduler = lsf
+job_name_prefix = rat
+
+[notifications]
+# Job completion notifications (if supported)
+email = 
+slack_webhook = 
+notification_events = END,FAIL

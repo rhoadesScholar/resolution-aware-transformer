@@ -172,11 +172,11 @@ class RATConfig:
 
         if quick_test:
             num_gpus = cluster_config["num_gpus_quick"]
-            walltime_hours = cluster_config["walltime_hours_quick"]
+            walltime_hours = cluster_config.get("walltime_hours_quick", None)
             job_name = f"{self.get('environment', 'job_name_prefix')}_quick_test"
         else:
             num_gpus = cluster_config["num_gpus_full"]
-            walltime_hours = cluster_config["walltime_hours"]
+            walltime_hours = cluster_config.get("walltime_hours", None)
             job_name = f"{self.get('environment', 'job_name_prefix')}_experiments"
 
         total_cpus = num_gpus * cluster_config["cpus_per_gpu"]

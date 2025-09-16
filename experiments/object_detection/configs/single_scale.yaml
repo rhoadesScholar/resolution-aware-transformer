@@ -38,8 +38,8 @@ data:
   max_size: 1333
   train_split: "train2017"
   val_split: "val2017"
-  batch_size: 4
-  num_workers: 8
+  batch_size: 16  # Optimized for H200 - was 4
+  num_workers: 12  # Optimized for H200 - was 8
   pin_memory: true
 
   # Data augmentation

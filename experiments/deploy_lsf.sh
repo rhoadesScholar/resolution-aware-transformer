@@ -1,12 +1,15 @@
 #!/bin/bash
 # LSF Deployment Helper for RAT Experiments
 # Usage: ./deploy_lsf.sh [quick|full|status|generate|config]
+# Ensure the script runs from its own directory
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+cd "$SCRIPT_DIR"
 set -e
 
 # Configuration
-CLUSTER_SCRIPTS_DIR="experiments/cluster"
-CONFIG_FILE="experiments/.config"
+CLUSTER_SCRIPTS_DIR="cluster"
+CONFIG_FILE=".config"
 
 # Colors for output
 RED='\033[0;31m'
@@ -43,7 +46,7 @@ check_lsf() {
 
 check_directories() {
     # Use config to get and create directories
-    python3 experiments/config_manager.py --create-dirs
+    python3 config_manager.py --create-dirs
     print_success "Directories created/verified from configuration"
 }
 
@@ -56,15 +59,15 @@ show_config() {
         return 1
     fi
     
-    python3 experiments/config_manager.py --dump
+    python3 config_manager.py --dump
     
     echo ""
     echo -e "${BLUE}LSF Job Configuration (Full):${NC}"
-    python3 experiments/config_manager.py --lsf-config
+    python3 config_manager.py --lsf-config
     
     echo ""
     echo -e "${BLUE}LSF Job Configuration (Quick):${NC}"
-    python3 experiments/config_manager.py --lsf-config --quick
+    python3 config_manager.py --lsf-config --quick
 }
 
 generate_scripts() {
@@ -78,11 +81,11 @@ generate_scripts() {
     fi
     
     # Check if parallel jobs are configured
-    PARALLEL_JOBS=$(python3 experiments/config_manager.py --dump | grep "parallel_jobs" | cut -d'=' -f2 | xargs)
+    PARALLEL_JOBS=$(python3 config_manager.py --dump | grep "parallel_jobs" | cut -d'=' -f2 | xargs)
     
-    if [ "$PARALLEL_JOBS" = "True" ]; then
+    if [ "$PARALLEL_JOBS" = "true" ]; then
         echo "Generating parallel job scripts..."
-        python3 experiments/generate_lsf_script.py --parallel --force
+        python3 generate_lsf_script.py --parallel --force
         
         echo ""
         echo -e "${BLUE}Generated parallel job files:${NC}"
@@ -91,10 +94,10 @@ generate_scripts() {
     else
         # Generate both standard scripts
         echo "Generating sequential job scripts..."
-        python3 experiments/generate_lsf_script.py --force
+        python3 generate_lsf_script.py --force
         
         echo "Generating quick test script..."
-        python3 experiments/generate_lsf_script.py --quick --force
+        python3 generate_lsf_script.py --quick --force
         
         echo ""
         echo -e "${BLUE}Generated sequential job files:${NC}"
@@ -120,7 +123,7 @@ show_status() {
     echo ""
     echo -e "${BLUE}Recent Results:${NC}"
     # Get results directory from config
-    RESULTS_DIR=$(python3 experiments/config_manager.py --dump | grep "results_dir" | cut -d'=' -f2 | xargs)
+    RESULTS_DIR=$(python3 config_manager.py --dump | grep "results_dir" | cut -d'=' -f2 | xargs)
     if [ -d "$RESULTS_DIR" ]; then
         ls -la "$RESULTS_DIR"
     else
@@ -130,7 +133,7 @@ show_status() {
 
 submit_quick_test() {
     print_header
-    echo -e "${YELLOW}Submitting quick test (2 GPUs, 2 hours)...${NC}"
+    echo -e "${YELLOW}Submitting quick test (2 GPUs, 1 hour)...${NC}"
     
     check_lsf
     check_directories
@@ -151,7 +154,7 @@ submit_quick_test() {
         echo "bjobs $JOB_ID"
         
         # Get results directory from config
-        RESULTS_DIR=$(python3 experiments/config_manager.py --dump | grep "results_dir" | cut -d'=' -f2 | xargs)
+        RESULTS_DIR=$(python3 config_manager.py --dump | grep "results_dir" | cut -d'=' -f2 | xargs)
         echo "tail -f $RESULTS_DIR/lsf_logs/rat_quick_${JOB_ID}.out"
         
         echo ""
@@ -172,9 +175,9 @@ submit_full_experiments() {
     check_directories
     
     # Check if parallel jobs are configured
-    PARALLEL_JOBS=$(python3 experiments/config_manager.py --dump | grep "parallel_jobs" | cut -d'=' -f2 | xargs)
+    PARALLEL_JOBS=$(python3 config_manager.py --dump | grep "parallel_jobs" | cut -d'=' -f2 | xargs)
     
-    if [ "$PARALLEL_JOBS" = "True" ]; then
+    if [ "$PARALLEL_JOBS" = "true" ]; then
         if [ ! -f "$CLUSTER_SCRIPTS_DIR/submit_all_parallel.lsf" ]; then
             print_error "Parallel submission script not found. Run './deploy_lsf.sh generate' first."
             exit 1
@@ -199,7 +202,7 @@ submit_full_experiments() {
         echo "bjobs"
         echo ""
         echo -e "${BLUE}View logs:${NC}"
-        RESULTS_DIR=$(python3 experiments/config_manager.py --dump | grep "results_dir" | cut -d'=' -f2 | xargs)
+        RESULTS_DIR=$(python3 config_manager.py --dump | grep "results_dir" | cut -d'=' -f2 | xargs)
         echo "ls $RESULTS_DIR/lsf_logs/"
         
     else
@@ -228,7 +231,7 @@ submit_full_experiments() {
             echo "bjobs $JOB_ID"
             
             # Get results directory from config
-            RESULTS_DIR=$(python3 experiments/config_manager.py --dump | grep "results_dir" | cut -d'=' -f2 | xargs)
+            RESULTS_DIR=$(python3 config_manager.py --dump | grep "results_dir" | cut -d'=' -f2 | xargs)
             echo "tail -f $RESULTS_DIR/lsf_logs/rat_experiments_${JOB_ID}.out"
             
             echo ""

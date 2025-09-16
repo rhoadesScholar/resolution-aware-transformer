@@ -4,15 +4,18 @@ Generate LSF job scripts using configuration file.
 """
 
 import sys
+import os
 import argparse
 from pathlib import Path
 
 # Add experiments directory to path
-sys.path.insert(0, str(Path(__file__).parent))
+local_path = str(Path(__file__).resolve().parent)
+sys.path.insert(0, local_path)
+os.chdir(local_path)
 from config_manager import load_config
 
 
-def generate_parallel_job_scripts(config, output_dir="experiments/cluster"):
+def generate_parallel_job_scripts(config, output_dir="cluster"):
     """Generate separate LSF job scripts for each experiment type."""
 
     experiments_config = config.get_experiments_config()
@@ -28,7 +31,7 @@ def generate_parallel_job_scripts(config, output_dir="experiments/cluster"):
         experiment_types.append(
             {
                 "name": "medical_segmentation",
-                "config_dir": "experiments/medical_segmentation/configs",
+                "config_dir": "medical_segmentation/configs",
                 "job_suffix": "medseg",
             }
         )
@@ -37,7 +40,7 @@ def generate_parallel_job_scripts(config, output_dir="experiments/cluster"):
         experiment_types.append(
             {
                 "name": "object_detection",
-                "config_dir": "experiments/object_detection/configs",
+                "config_dir": "object_detection/configs",
                 "job_suffix": "objdet",
             }
         )
@@ -46,7 +49,7 @@ def generate_parallel_job_scripts(config, output_dir="experiments/cluster"):
         experiment_types.append(
             {
                 "name": "ablation_studies",
-                "config_dir": "experiments/ablations/configs",
+                "config_dir": "ablations/configs",
                 "job_suffix": "ablation",
             }
         )
@@ -55,7 +58,7 @@ def generate_parallel_job_scripts(config, output_dir="experiments/cluster"):
         experiment_types.append(
             {
                 "name": "robustness_tests",
-                "config_dir": "experiments/robustness",
+                "config_dir": "robustness",
                 "job_suffix": "robust",
             }
         )
@@ -98,6 +101,126 @@ def generate_parallel_job_scripts(config, output_dir="experiments/cluster"):
     generated_scripts.append(master_file)
 
     return generated_scripts
+
+
+def generate_data_setup_for_experiment(exp_type):
+    """Generate experiment-specific data setup code."""
+    
+    if exp_type["name"] == "medical_segmentation":
+        return [
+            "# Data setup - Medical segmentation only needs ISIC dataset",
+            'echo "Setting up ISIC dataset for medical segmentation..."',
+            "",
+            "# Add small random delay to reduce I/O contention if multiple jobs start simultaneously",
+            "sleep $((RANDOM % 30 + 10))  # Random delay between 10-40 seconds",
+            "",
+            'DATASET_CONFIG=$(python3 config_manager.py --dump)',
+            'USE_SAMPLE_DATA=$(echo "$DATASET_CONFIG" | grep "use_sample_data" | cut -d\'=\' -f2 | xargs)',
+            'ISIC_SOURCE=$(echo "$DATASET_CONFIG" | grep "isic_source_dir" | cut -d\'=\' -f2 | xargs)',
+            'ISIC_SAMPLE_SIZE=$(echo "$DATASET_CONFIG" | grep "isic_sample_size" | cut -d\'=\' -f2 | xargs)',
+            "",
+            'if [ "$USE_SAMPLE_DATA" = "true" ] || [ -z "$ISIC_SOURCE" ]; then',
+            '    echo "Creating sample ISIC2018 dataset..."',
+            "    python scripts/setup_isic.py \\",
+            "        --sample_only \\",
+            '        --output_dir "$LOCAL_DATA_DIR/sample_ISIC2018" \\',
+            "        --num_samples ${ISIC_SAMPLE_SIZE:-100}",
+            "else",
+            '    if [ -d "$ISIC_SOURCE" ]; then',
+            '        echo "Copying ISIC2018 from $ISIC_SOURCE to local storage..."',
+            '        rsync -av "$ISIC_SOURCE/" "$LOCAL_DATA_DIR/ISIC2018/"',
+            "    else",
+            '        echo "Warning: ISIC source directory not found: $ISIC_SOURCE"',
+            '        echo "Falling back to sample dataset..."',
+            "        python scripts/setup_isic.py \\",
+            "            --sample_only \\",
+            '            --output_dir "$LOCAL_DATA_DIR/sample_ISIC2018" \\',
+            "            --num_samples ${ISIC_SAMPLE_SIZE:-100}",
+            "    fi",
+            "fi",
+            "",
+            'echo "ISIC dataset setup completed."',
+        ]
+    
+    elif exp_type["name"] == "object_detection":
+        return [
+            "# Data setup - Object detection only needs COCO dataset",
+            'echo "Setting up COCO dataset for object detection..."',
+            "",
+            "# Add small random delay to reduce I/O contention if multiple jobs start simultaneously",
+            "sleep $((RANDOM % 30 + 10))  # Random delay between 10-40 seconds",
+            "",
+            'DATASET_CONFIG=$(python3 config_manager.py --dump)',
+            'USE_SAMPLE_DATA=$(echo "$DATASET_CONFIG" | grep "use_sample_data" | cut -d\'=\' -f2 | xargs)',
+            'COCO_SOURCE=$(echo "$DATASET_CONFIG" | grep "coco_source_dir" | cut -d\'=\' -f2 | xargs)',
+            'COCO_SAMPLE_SIZE=$(echo "$DATASET_CONFIG" | grep "coco_sample_size" | cut -d\'=\' -f2 | xargs)',
+            "",
+            'if [ "$USE_SAMPLE_DATA" = "true" ] || [ -z "$COCO_SOURCE" ]; then',
+            '    echo "Creating sample COCO2017 dataset..."',
+            "    python scripts/setup_coco.py \\",
+            "        --sample_only \\",
+            '        --output_dir "$LOCAL_DATA_DIR/sample_COCO2017" \\',
+            "        --num_samples ${COCO_SAMPLE_SIZE:-50}",
+            "else",
+            '    if [ -d "$COCO_SOURCE" ]; then',
+            '        echo "Copying COCO2017 from $COCO_SOURCE to local storage..."',
+            '        rsync -av "$COCO_SOURCE/" "$LOCAL_DATA_DIR/COCO2017/"',
+            "    else",
+            '        echo "Warning: COCO source directory not found: $COCO_SOURCE"',
+            '        echo "Falling back to sample dataset..."',
+            "        python scripts/setup_coco.py \\",
+            "            --sample_only \\",
+            '            --output_dir "$LOCAL_DATA_DIR/sample_COCO2017" \\',
+            "            --num_samples ${COCO_SAMPLE_SIZE:-50}",
+            "    fi",
+            "fi",
+            "",
+            'echo "COCO dataset setup completed."',
+        ]
+    
+    elif exp_type["name"] == "ablation_studies":
+        return [
+            "# Data setup - Ablation studies use ISIC dataset (medical segmentation focus)",
+            'echo "Setting up ISIC dataset for ablation studies..."',
+            "",
+            "# Add small random delay to reduce I/O contention if multiple jobs start simultaneously",
+            "sleep $((RANDOM % 30 + 10))  # Random delay between 10-40 seconds",
+            "",
+            'DATASET_CONFIG=$(python3 config_manager.py --dump)',
+            'USE_SAMPLE_DATA=$(echo "$DATASET_CONFIG" | grep "use_sample_data" | cut -d\'=\' -f2 | xargs)',
+            'ISIC_SOURCE=$(echo "$DATASET_CONFIG" | grep "isic_source_dir" | cut -d\'=\' -f2 | xargs)',
+            'ISIC_SAMPLE_SIZE=$(echo "$DATASET_CONFIG" | grep "isic_sample_size" | cut -d\'=\' -f2 | xargs)',
+            "",
+            'if [ "$USE_SAMPLE_DATA" = "true" ] || [ -z "$ISIC_SOURCE" ]; then',
+            '    echo "Creating sample ISIC2018 dataset..."',
+            "    python scripts/setup_isic.py \\",
+            "        --sample_only \\",
+            '        --output_dir "$LOCAL_DATA_DIR/sample_ISIC2018" \\',
+            "        --num_samples ${ISIC_SAMPLE_SIZE:-100}",
+            "else",
+            '    if [ -d "$ISIC_SOURCE" ]; then',
+            '        echo "Copying ISIC2018 from $ISIC_SOURCE to local storage..."',
+            '        rsync -av "$ISIC_SOURCE/" "$LOCAL_DATA_DIR/ISIC2018/"',
+            "    else",
+            '        echo "Warning: ISIC source directory not found: $ISIC_SOURCE"',
+            '        echo "Falling back to sample dataset..."',
+            "        python scripts/setup_isic.py \\",
+            "            --sample_only \\",
+            '            --output_dir "$LOCAL_DATA_DIR/sample_ISIC2018" \\',
+            "            --num_samples ${ISIC_SAMPLE_SIZE:-100}",
+            "    fi",
+            "fi",
+            "",
+            'echo "ISIC dataset setup completed."',
+        ]
+    
+    else:
+        # Default setup for other experiment types
+        return [
+            "# Data setup - Default: setup both datasets",
+            'echo "Setting up datasets for experiment..."',
+            ". scripts/setup_experiment_data.sh",
+        ]
 
 
 def generate_single_experiment_script(config, exp_type, dependency_job_name=None):
@@ -194,9 +317,26 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
             'mkdir -p "$NETWORK_RESULTS_DIR/tensorboard_logs"',
             'mkdir -p "$NETWORK_CHECKPOINTS_DIR"',
             "",
-            "# Data setup (using shared function)",
-            'echo "Setting up data for experiment..."',
-            ". experiments/scripts/setup_experiment_data.sh",  # We'll create this shared script
+        ]
+    )
+
+    # Add experiment-specific data setup
+    data_setup_lines = generate_data_setup_for_experiment(exp_type)
+    script_lines.extend(data_setup_lines)
+
+    script_lines.extend(
+        [
+            "",
+            'echo "Local data directory contents:"',
+            'du -sh "$LOCAL_DATA_DIR"/* 2>/dev/null || echo "No data directories found"',
+            "",
+            f"# Update cluster configurations for this experiment",
+            f'echo "Updating configurations for {exp_type["name"]}..."',
+            "python scripts/update_cluster_configs.py \\",
+            '    --data_dir "$LOCAL_DATA_DIR" \\',
+            '    --results_dir "$NETWORK_RESULTS_DIR" \\',
+            '    --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR" \\',
+            '    --num_gpus "$NUM_GPUS"',
             "",
             "# Set distributed training environment",
             f"export MASTER_ADDR=$(hostname)",
@@ -212,7 +352,7 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
     if exp_type["name"] == "robustness_tests":
         script_lines.extend(
             [
-                "python experiments/robustness/resolution_transfer.py \\",
+                "python robustness/resolution_transfer.py \\",
                 '    --results_dir "$NETWORK_RESULTS_DIR" \\',
                 '    --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"',
             ]
@@ -225,7 +365,7 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
                 "    --nproc_per_node=$NUM_GPUS \\",
                 "    --master_addr=$MASTER_ADDR \\",
                 "    --master_port=$MASTER_PORT \\",
-                "    experiments/train_distributed.py \\",
+                "    train_distributed.py \\",
                 f"    --config_dir {exp_type['config_dir']} \\",
                 '    --results_dir "$NETWORK_RESULTS_DIR" \\',
                 '    --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"',
@@ -280,7 +420,7 @@ def generate_master_submission_script(config, experiment_types, use_dependencies
         for i, exp_type in enumerate(experiment_types):
             script_lines.append(f'echo "Submitting {exp_type["name"]} experiment..."')
             script_lines.append(
-                f'JOB_{i+1}=$(bsub < experiments/cluster/submit_{exp_type["job_suffix"]}.lsf | grep -oE "[0-9]+")'
+                f'JOB_{i+1}=$(bsub < cluster/submit_{exp_type["job_suffix"]}.lsf | grep -oE "[0-9]+")'
             )
             script_lines.append(f'echo "Job ID: $JOB_{i+1}"')
             script_lines.append("")
@@ -296,7 +436,7 @@ def generate_master_submission_script(config, experiment_types, use_dependencies
         for i, exp_type in enumerate(experiment_types):
             script_lines.append(f'echo "Submitting {exp_type["name"]} experiment..."')
             script_lines.append(
-                f'JOB_{i+1}=$(bsub < experiments/cluster/submit_{exp_type["job_suffix"]}.lsf | grep -oE "[0-9]+")'
+                f'JOB_{i+1}=$(bsub < cluster/submit_{exp_type["job_suffix"]}.lsf | grep -oE "[0-9]+")'
             )
             script_lines.append(f'echo "Job ID: $JOB_{i+1}"')
             script_lines.append("")
@@ -444,7 +584,7 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
     script_lines.extend(
         [
             '    echo "Creating sample ISIC2018 dataset..."',
-            "    python experiments/scripts/setup_isic.py \\",
+            "    python scripts/setup_isic.py \\",
             "        --sample_only \\",
             '        --output_dir "$LOCAL_DATA_DIR/sample_ISIC2018" \\',
             f'        --num_samples {dataset_config["isic_sample_size"]}',
@@ -471,7 +611,7 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
     script_lines.extend(
         [
             '    echo "Creating sample COCO2017 dataset..."',
-            "    python experiments/scripts/setup_coco.py \\",
+            "    python scripts/setup_coco.py \\",
             "        --sample_only \\",
             '        --output_dir "$LOCAL_DATA_DIR/sample_COCO2017" \\',
             f'        --num_samples {dataset_config["coco_sample_size"]}',
@@ -489,7 +629,7 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
             "",
             "# Update configurations for cluster",
             'echo "Updating configurations for cluster..."',
-            "python experiments/scripts/update_cluster_configs.py \\",
+            "python scripts/update_cluster_configs.py \\",
             '    --data_dir "$LOCAL_DATA_DIR" \\',
             '    --results_dir "$NETWORK_RESULTS_DIR" \\',
             '    --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR" \\',
@@ -523,8 +663,8 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
                 "    --nproc_per_node=$NUM_GPUS \\",
                 "    --master_addr=$MASTER_ADDR \\",
                 f"    --master_port={current_port} \\",
-                "    experiments/train_distributed.py \\",
-                "    --config_dir experiments/medical_segmentation/configs \\",
+                "    train_distributed.py \\",
+                "    --config_dir medical_segmentation/configs \\",
                 '    --results_dir "$NETWORK_RESULTS_DIR" \\',
                 '    --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"',
                 "",
@@ -536,15 +676,15 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
         script_lines.extend(
             [
                 "# Run object detection experiments (if configs exist)",
-                'if [ -d "experiments/object_detection/configs" ]; then',
+                'if [ -d "object_detection/configs" ]; then',
                 '    echo "Running object detection experiments..."',
                 "    torchrun \\",
                 "        --nnodes=1 \\",
                 "        --nproc_per_node=$NUM_GPUS \\",
                 "        --master_addr=$MASTER_ADDR \\",
                 f"        --master_port={current_port} \\",
-                "        experiments/train_distributed.py \\",
-                "        --config_dir experiments/object_detection/configs \\",
+                "        train_distributed.py \\",
+                "        --config_dir object_detection/configs \\",
                 '        --results_dir "$NETWORK_RESULTS_DIR" \\',
                 '        --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"',
                 "fi",
@@ -557,15 +697,15 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
         script_lines.extend(
             [
                 "# Run ablation studies",
-                'if [ -d "experiments/ablations/configs" ]; then',
+                'if [ -d "ablations/configs" ]; then',
                 '    echo "Running ablation studies..."',
                 "    torchrun \\",
                 "        --nnodes=1 \\",
                 "        --nproc_per_node=$NUM_GPUS \\",
                 "        --master_addr=$MASTER_ADDR \\",
                 f"        --master_port={current_port} \\",
-                "        experiments/train_distributed.py \\",
-                "        --config_dir experiments/ablations/configs \\",
+                "        train_distributed.py \\",
+                "        --config_dir ablations/configs \\",
                 '        --results_dir "$NETWORK_RESULTS_DIR" \\',
                 '        --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"',
                 "fi",
@@ -578,9 +718,9 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
         script_lines.extend(
             [
                 "# Run robustness tests",
-                'if [ -d "experiments/robustness" ]; then',
+                'if [ -d "robustness" ]; then',
                 '    echo "Running robustness tests..."',
-                "    python experiments/robustness/resolution_transfer.py \\",
+                "    python robustness/resolution_transfer.py \\",
                 '        --results_dir "$NETWORK_RESULTS_DIR" \\',
                 '        --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"',
                 "fi",
@@ -694,9 +834,9 @@ def main():
         # Determine output file if not specified
         if not args.output:
             if args.quick:
-                args.output = "experiments/cluster/submit_quick_test.lsf"
+                args.output = "cluster/submit_quick_test.lsf"
             else:
-                args.output = "experiments/cluster/submit_experiments.lsf"
+                args.output = "cluster/submit_experiments.lsf"
 
         # Check if file exists
         if Path(args.output).exists() and not args.force:
@@ -705,7 +845,7 @@ def main():
                 print("Cancelled.")
                 return
 
-        # Create experiments/cluster directory if it doesn't exist
+        # Create cluster directory if it doesn't exist
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
 
         # Generate script

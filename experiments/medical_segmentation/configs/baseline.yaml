@@ -11,7 +11,7 @@ seed: 42
 data:
   data_dir: "/path/to/ISIC2018"  # Update this path
   image_size: 256
-  num_workers: 4
+  num_workers: 20  # Optimized for H200 baseline - was 4
 
 # Model configuration
 model:
@@ -21,7 +21,7 @@ model:
 # Training configuration
 training:
   epochs: 100
-  batch_size: 16
+  batch_size: 80  # Optimized for H200 baseline models - was 16
   learning_rate: 0.0001
   weight_decay: 0.01
   scheduler: "cosine"

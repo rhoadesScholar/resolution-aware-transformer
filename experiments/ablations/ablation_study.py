@@ -20,6 +20,7 @@ from utils import (
     get_device,
     set_seed,
     setup_logging,
+    adjust_config_for_gpu_memory,
 )
 
 
@@ -364,9 +365,12 @@ def generate_ablation_summary(results_df):
 def main():
     args = parse_args()
 
-    # Load configuration
+    # Load and optimize configuration
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
+    
+    # Apply dynamic memory optimization
+    config = adjust_config_for_gpu_memory(config)
 
     set_seed(config.get("seed", 42))
 

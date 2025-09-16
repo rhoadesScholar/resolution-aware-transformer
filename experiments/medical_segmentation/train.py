@@ -23,6 +23,7 @@ from utils import (
     get_device,
     set_seed,
     setup_logging,
+    adjust_config_for_gpu_memory,
 )
 
 
@@ -43,9 +44,13 @@ def parse_args():
 
 
 def load_config(config_path: str) -> dict:
-    """Load experiment configuration."""
+    """Load and optimize experiment configuration."""
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
+    
+    # Apply dynamic memory optimization
+    config = adjust_config_for_gpu_memory(config)
+    
     return config
 
 

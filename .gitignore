@@ -174,3 +174,4 @@ Desktop.ini
 experiments/results/*logs
 experiments/.config
 experiments/data
+experiments/cluster/*.lsf

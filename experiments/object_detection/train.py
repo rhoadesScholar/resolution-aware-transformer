@@ -14,7 +14,7 @@ import yaml
 sys.path.append(str(Path(__file__).parent.parent / "common"))
 from datasets import COCODataset
 from models import create_rat_detection_model
-from utils import AverageMeter, ExperimentTracker, get_device, set_seed
+from utils import AverageMeter, ExperimentTracker, get_device, set_seed, adjust_config_for_gpu_memory
 
 
 def parse_args():
@@ -183,9 +183,12 @@ def validate(model, dataloader, criterion, device, config):
 def main():
     args = parse_args()
 
-    # Load configuration
+    # Load and optimize configuration
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
+    
+    # Apply dynamic memory optimization
+    config = adjust_config_for_gpu_memory(config)
 
     set_seed(config.get("seed", 42))
     device = get_device()

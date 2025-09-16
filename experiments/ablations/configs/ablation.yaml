@@ -11,7 +11,7 @@ seed: 42
 data:
   data_dir: "/path/to/ISIC2018"  # Update this path
   image_size: 256
-  num_workers: 4
+  num_workers: 12  # Optimized for H200 - was 4
 
 # Base model configuration (will be modified for each ablation)
 model:
@@ -29,7 +29,7 @@ model:
 
 # Evaluation configuration
 evaluation:
-  batch_size: 16
+  batch_size: 48  # Optimized for H200 - was 16
 
 # Ablation studies to run
 ablations:

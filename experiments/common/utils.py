@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 
 import numpy as np
 import torch
+import torch
 import yaml
 
 
@@ -48,6 +49,184 @@ def save_config(config: Dict[str, Any], save_path: str):
 
     with open(save_path_obj, "w") as f:
         yaml.dump(config, f, default_flow_style=False)
+
+
+def get_optimal_batch_size(model, sample_input, device, max_batch_size=128, start_batch_size=None):
+    """
+    Automatically find the optimal batch size for the given model and GPU memory.
+    
+    Args:
+        model: The PyTorch model
+        sample_input: A sample input tensor (batch_size=1)
+        device: The device to run on
+        max_batch_size: Maximum batch size to try
+        start_batch_size: Starting batch size (if None, starts from config)
+    
+    Returns:
+        Optimal batch size that fits in memory
+    """
+    import gc
+    
+    model.eval()
+    
+    if start_batch_size is None:
+        batch_size = 2
+    else:
+        batch_size = start_batch_size
+    
+    optimal_batch_size = 1
+    
+    device_name = torch.cuda.get_device_name(device) if torch.cuda.is_available() else str(device)
+    print(f"Finding optimal batch size for device: {device_name}...")
+    
+    while batch_size <= max_batch_size:
+        try:
+            # Clear cache
+            torch.cuda.empty_cache()
+            gc.collect()
+            
+            # Create batch
+            if isinstance(sample_input, dict):
+                batch = {k: v.repeat(batch_size, *([1] * (v.dim() - 1))) 
+                        for k, v in sample_input.items()}
+            else:
+                batch = sample_input.repeat(batch_size, *([1] * (sample_input.dim() - 1)))
+            
+            # Test forward pass
+            with torch.no_grad():
+                if isinstance(batch, dict):
+                    _ = model(**batch)
+                else:
+                    _ = model(batch)
+            
+            optimal_batch_size = batch_size
+            memory_used = torch.cuda.max_memory_allocated(device) / 1024**3  # GB
+            print(f"Batch size {batch_size}: OK (Memory: {memory_used:.1f}GB)")
+            
+            batch_size *= 2
+            
+        except RuntimeError as e:
+            if "out of memory" in str(e).lower():
+                print(f"Batch size {batch_size}: OOM")
+                break
+            else:
+                raise e
+    
+    print(f"Optimal batch size: {optimal_batch_size}")
+    model.train()
+    return optimal_batch_size
+
+
+def adjust_config_for_gpu_memory(config: Dict[str, Any], gpu_memory_gb: int = None) -> Dict[str, Any]:
+    """
+    Dynamically adjust configuration based on available GPU memory.
+    
+    Args:
+        config: Original configuration dictionary
+        gpu_memory_gb: GPU memory in GB (if None, tries to detect from config or defaults to 80GB)
+    
+    Returns:
+        Memory-optimized configuration
+    """
+    config = config.copy()
+    
+    # Auto-detect GPU memory from cluster config if not provided
+    if gpu_memory_gb is None:
+        try:
+            # Try to read from .config file
+            import configparser
+            from pathlib import Path
+            config_file = Path(__file__).parent.parent / ".config"
+            if config_file.exists():
+                cluster_config = configparser.ConfigParser()
+                cluster_config.read(config_file)
+                memory_mb = int(cluster_config.get("cluster", "memory_mb_per_gpu", fallback="80000"))
+                gpu_memory_gb = memory_mb // 1000
+            else:
+                gpu_memory_gb = 80  # Default to H100
+        except:
+            gpu_memory_gb = 80  # Fallback to H100
+    
+    print(f"Optimizing for GPU with {gpu_memory_gb}GB memory...")
+    
+    # Get image size and task type
+    if "data" in config:
+        image_size = config["data"].get("image_size", 256)
+        is_detection = "coco" in config["data"].get("dataset", "").lower()
+    else:
+        image_size = 256
+        is_detection = False
+    
+    # Get model complexity
+    is_multiscale = config.get("model", {}).get("multi_scale", False)
+    feature_dims = config.get("model", {}).get("feature_dims", 256)
+    
+    # Memory scaling factor based on available memory
+    # Base calculations are for 80GB, scale accordingly
+    memory_scale = gpu_memory_gb / 80.0
+    
+    # Calculate optimal batch sizes based on memory and task
+    if is_detection:
+        # Object detection (larger images, more memory per sample)
+        if is_multiscale:
+            base_batch = max(2, int(4 * memory_scale))  # Conservative for multi-scale
+        else:
+            base_batch = max(4, int(8 * memory_scale))   # More aggressive for single-scale
+        
+        # Scale down for very large images
+        if image_size > 800:
+            base_batch = max(1, base_batch // 2)
+            
+    else:
+        # Segmentation (smaller images, less memory per sample)  
+        if is_multiscale:
+            base_batch = max(8, int(16 * memory_scale))  # Conservative for multi-scale
+        else:
+            base_batch = max(16, int(32 * memory_scale))  # More aggressive for single-scale
+        
+        # Scale up for smaller images
+        if image_size <= 256:
+            base_batch = int(base_batch * 1.5)
+    
+    # Adjust for model complexity
+    if feature_dims > 256:
+        base_batch = max(1, base_batch // 2)
+    
+    # Cap batch sizes to reasonable maximums
+    max_batch = 128 if not is_detection else 32
+    optimal_batch = min(base_batch, max_batch)
+    
+    # Update batch sizes in config
+    if "training" in config:
+        old_batch = config["training"].get("batch_size", 16)
+        config["training"]["batch_size"] = optimal_batch
+        print(f"Training batch size: {old_batch} → {optimal_batch} ({gpu_memory_gb}GB GPU)")
+    
+    if "data" in config:
+        old_batch = config["data"].get("batch_size", 16)
+        config["data"]["batch_size"] = optimal_batch
+        print(f"Data batch size: {old_batch} → {optimal_batch} ({gpu_memory_gb}GB GPU)")
+    
+    if "evaluation" in config:
+        old_batch = config["evaluation"].get("batch_size", 16)
+        eval_batch = min(optimal_batch * 2, max_batch)  # Can use larger batch for eval
+        config["evaluation"]["batch_size"] = eval_batch
+        print(f"Eval batch size: {old_batch} → {eval_batch} ({gpu_memory_gb}GB GPU)")
+    
+    # Optimize number of workers based on batch size and memory
+    optimal_workers = min(20, max(4, optimal_batch // 2))
+    if "data" in config:
+        old_workers = config["data"].get("num_workers", 4)
+        config["data"]["num_workers"] = optimal_workers
+        print(f"Data workers: {old_workers} → {optimal_workers}")
+    
+    return config
+
+
+# Keep the old function for backward compatibility but mark as deprecated
+def adjust_config_for_h200(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Deprecated: Use adjust_config_for_gpu_memory() instead."""
+    return adjust_config_for_gpu_memory(config, gpu_memory_gb=140)
 
 
 def load_config(config_path: str) -> Dict[str, Any]:

@@ -6,18 +6,16 @@
 [cluster]
 # LSF job scheduler settings
 queue = gpu
-# walltime_hours = 48  # Removed - no time limit
-# walltime_hours_quick = 2  # Removed - no time limit
 
-# GPU allocation
+cpus_per_gpu = 4
+memory_mb_per_gpu = 16000
 num_gpus_full = 8
 num_gpus_quick = 2
 gpu_mode = exclusive_process
 
-# CPU and memory settings
-cpus_per_gpu = 4
-memory_mb_per_gpu = 16000
 span_hosts = 1
+walltime_hours =   # Removed - no time limit
+walltime_hours_quick = 1  # Removed - no time limit
 
 # Node requirements
 exclusive_node = true

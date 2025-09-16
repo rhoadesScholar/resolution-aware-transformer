@@ -7,7 +7,7 @@ This directory contains a comprehensive configuration system for running Resolut
 1. **Configure your setup:**
    ```bash
    # Edit the configuration file for your cluster
-   nano experiments/.config
+   nano .config
    ```
 
 2. **Generate LSF scripts:**
@@ -25,7 +25,7 @@ This directory contains a comprehensive configuration system for running Resolut
    ./deploy_lsf.sh full
    ```
 
-## Configuration File: `experiments/.config`
+## Configuration File: `.config`
 
 The configuration file uses INI format with the following sections:
 
@@ -77,29 +77,29 @@ The configuration file uses INI format with the following sections:
 Configuration management tool with validation and utilities:
 ```bash
 # Validate configuration
-python3 experiments/config_manager.py --validate
+python3 config_manager.py --validate
 
 # Show current configuration
-python3 experiments/config_manager.py --dump
+python3 config_manager.py --dump
 
 # Create configured directories
-python3 experiments/config_manager.py --create-dirs
+python3 config_manager.py --create-dirs
 
 # Show LSF job configuration
-python3 experiments/config_manager.py --lsf-config [--quick]
+python3 config_manager.py --lsf-config [--quick]
 ```
 
 ### `generate_lsf_script.py`
 Generates LSF job scripts from configuration:
 ```bash
 # Generate full experiments script
-python3 experiments/generate_lsf_script.py
+python3 generate_lsf_script.py
 
 # Generate quick test script
-python3 experiments/generate_lsf_script.py --quick
+python3 generate_lsf_script.py --quick
 
 # Generate to specific file
-python3 experiments/generate_lsf_script.py --output my_job.lsf
+python3 generate_lsf_script.py --output my_job.lsf
 ```
 
 ### `deploy_lsf.sh`
@@ -135,7 +135,7 @@ Main deployment script with multiple commands:
 ### Development/Testing Workflow
 ```bash
 # 1. Configure for your cluster
-nano experiments/.config
+nano .config
 
 # 2. Generate scripts
 ./deploy_lsf.sh generate
@@ -179,14 +179,14 @@ The configuration system is designed to be easily customizable:
 
 ## Troubleshooting
 
-- **Configuration errors**: Run `python3 experiments/config_manager.py --validate`
+- **Configuration errors**: Run `python3 config_manager.py --validate`
 - **Path issues**: Check `repo_root` setting and ensure all paths are accessible
 - **LSF errors**: Verify queue names and resource limits with your cluster admin
 - **Permission issues**: Ensure write access to configured directories
 
 For more details, see individual script help:
 ```bash
-python3 experiments/config_manager.py --help
-python3 experiments/generate_lsf_script.py --help
+python3 config_manager.py --help
+python3 generate_lsf_script.py --help
 ./deploy_lsf.sh help
 ```

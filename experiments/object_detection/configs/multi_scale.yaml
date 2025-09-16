@@ -44,8 +44,8 @@ data:
   max_size: 1333
   train_split: "train2017"
   val_split: "val2017"
-  batch_size: 2  # Reduced due to multi-scale memory usage
-  num_workers: 8
+  batch_size: 8  # Optimized for H200 multi-scale - was 2
+  num_workers: 10  # Optimized for H200 - was 8
   pin_memory: true
 
   # Multi-scale processing

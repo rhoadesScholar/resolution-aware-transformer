@@ -17,9 +17,6 @@ span_hosts = 1
 walltime_hours =   # Removed - no time limit
 walltime_hours_quick = 1  # Removed - no time limit
 
-# Node requirements
-exclusive_node = true
-
 [paths]
 # Base directories (relative to repo root or absolute)
 repo_root = /Users/rhoadesj/Repos/resolution-aware-transformer
@@ -85,6 +82,7 @@ ablation_epochs = 50
 
 [environment]
 # Environment setup
+micromamba_env = RAT
 conda_env = 
 python_path = 
 cuda_version = 

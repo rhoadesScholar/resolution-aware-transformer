@@ -344,7 +344,6 @@ class ClusterSetup:
 #SBATCH --error={self.network_results_dir}/slurm_logs/rat_experiments_%j.err
 
 # Setup environment
-source ~/.bashrc
 conda activate rat_env  # or your environment name
 
 # Set environment variables for distributed training
@@ -396,7 +395,6 @@ echo "Experiments completed"
 #SBATCH --error={self.network_results_dir}/slurm_logs/rat_quick_test_%j.err
 
 # Setup environment
-source ~/.bashrc
 conda activate rat_env
 
 export MASTER_ADDR=localhost
@@ -447,7 +445,6 @@ torchrun \\
 # Run this on a login node or dedicated monitoring node
 
 # Load environment
-source ~/.bashrc
 conda activate rat_env
 
 # Start TensorBoard server

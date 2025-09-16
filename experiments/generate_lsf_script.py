@@ -15,6 +15,34 @@ os.chdir(local_path)
 from config_manager import load_config
 
 
+def get_training_command_for_experiment(exp_type):
+    """Generate the correct training command for each experiment type."""
+    training_commands = {
+        "medical_segmentation": {
+            "script": "medical_segmentation/train.py",
+            "config": "medical_segmentation/configs/rat_multiscale.yaml",
+        },
+        "object_detection": {
+            "script": "object_detection/train.py", 
+            "config": "object_detection/configs/multi_scale.yaml",
+        },
+        "ablation_studies": {
+            "script": "ablations/ablation_study.py",
+            "config": "ablations/configs/ablation.yaml",
+        },
+        "robustness_tests": {
+            "script": "robustness/resolution_transfer.py",
+            "config": None,  # No config file needed
+        }
+    }
+    
+    exp_name = exp_type["name"]
+    if exp_name not in training_commands:
+        raise ValueError(f"Unknown experiment type: {exp_name}")
+    
+    return training_commands[exp_name]
+
+
 def generate_parallel_job_scripts(config, output_dir="cluster"):
     """Generate separate LSF job scripts for each experiment type."""
 
@@ -121,10 +149,12 @@ def generate_data_setup_for_experiment(exp_type):
             "",
             'if [ "$USE_SAMPLE_DATA" = "true" ] || [ -z "$ISIC_SOURCE" ]; then',
             '    echo "Creating sample ISIC2018 dataset..."',
-            "    python scripts/setup_isic.py \\",
+            '    echo "DEBUG: About to run setup_isic.py with args: --sample_only --output_dir $LOCAL_DATA_DIR/sample_ISIC2018 --num_samples ${ISIC_SAMPLE_SIZE:-100}"',
+            "    python3 scripts/setup_isic.py \\",
             "        --sample_only \\",
             '        --output_dir "$LOCAL_DATA_DIR/sample_ISIC2018" \\',
             "        --num_samples ${ISIC_SAMPLE_SIZE:-100}",
+            '    echo "DEBUG: setup_isic.py finished with exit code: $?"',
             "else",
             '    if [ -d "$ISIC_SOURCE" ]; then',
             '        echo "Copying ISIC2018 from $ISIC_SOURCE to local storage..."',
@@ -193,10 +223,12 @@ def generate_data_setup_for_experiment(exp_type):
             "",
             'if [ "$USE_SAMPLE_DATA" = "true" ] || [ -z "$ISIC_SOURCE" ]; then',
             '    echo "Creating sample ISIC2018 dataset..."',
-            "    python scripts/setup_isic.py \\",
+            '    echo "DEBUG: About to run setup_isic.py with args: --sample_only --output_dir $LOCAL_DATA_DIR/sample_ISIC2018 --num_samples ${ISIC_SAMPLE_SIZE:-100}"',
+            "    python3 scripts/setup_isic.py \\",
             "        --sample_only \\",
             '        --output_dir "$LOCAL_DATA_DIR/sample_ISIC2018" \\',
             "        --num_samples ${ISIC_SAMPLE_SIZE:-100}",
+            '    echo "DEBUG: setup_isic.py finished with exit code: $?"',
             "else",
             '    if [ -d "$ISIC_SOURCE" ]; then',
             '        echo "Copying ISIC2018 from $ISIC_SOURCE to local storage..."',
@@ -251,17 +283,13 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
 
     script_lines.extend(
         [
-            f"#BSUB -M {lsf_config['total_memory']}",
+            # Memory allocation handled automatically by GPU queue
             f"#BSUB -R \"span[hosts={lsf_config['span_hosts']}]\"",
-            f"#BSUB -R \"rusage[mem={lsf_config['total_memory']}]\"",
             f"#BSUB -o {paths_config['results_dir']}/lsf_logs/{job_name}_%J.out",
             f"#BSUB -e {paths_config['results_dir']}/lsf_logs/{job_name}_%J.err",
             f"#BSUB -q {lsf_config['queue']}",
         ]
     )
-
-    if lsf_config["exclusive_node"]:
-        script_lines.append("#BSUB -x")
 
     # Add email notifications if configured
     email = config.get("notifications", "email")
@@ -291,7 +319,6 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
             "",
             "# Environment setup",
             'echo "Setting up environment..."',
-            "source ~/.bashrc",
         ]
     )
 
@@ -299,6 +326,14 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
     conda_env = config.get("environment", "conda_env")
     if conda_env:
         script_lines.append(f"conda activate {conda_env}")
+
+    micromamba_env = config.get("environment", "micromamba_env")
+    if micromamba_env:
+        script_lines.extend([
+            "# Initialize micromamba for this shell",
+            'eval "$(micromamba shell hook --shell bash)"',
+            f"micromamba activate {micromamba_env}"
+        ])
 
     # Add module loading if specified
     modules = config.get("environment", "modules_to_load")
@@ -310,6 +345,13 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
 
     script_lines.extend(
         [
+            "",
+            "# Debug environment",
+            'echo "Environment debugging info:"',
+            'echo "Python path: $(which python3 2>/dev/null || echo \'python3 not found\')"',
+            'echo "Current directory: $(pwd)"', 
+            'echo "PATH: $PATH"',
+            'echo "User: $(whoami)"',
             "",
             "# Create directories and setup data",
             'mkdir -p "$LOCAL_DATA_DIR"',
@@ -349,10 +391,12 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
     )
 
     # Add experiment-specific training command
+    training_cmd = get_training_command_for_experiment(exp_type)
+    
     if exp_type["name"] == "robustness_tests":
         script_lines.extend(
             [
-                "python robustness/resolution_transfer.py \\",
+                f"python {training_cmd['script']} \\",
                 '    --results_dir "$NETWORK_RESULTS_DIR" \\',
                 '    --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"',
             ]
@@ -365,10 +409,10 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
                 "    --nproc_per_node=$NUM_GPUS \\",
                 "    --master_addr=$MASTER_ADDR \\",
                 "    --master_port=$MASTER_PORT \\",
-                "    train_distributed.py \\",
-                f"    --config_dir {exp_type['config_dir']} \\",
-                '    --results_dir "$NETWORK_RESULTS_DIR" \\',
-                '    --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"',
+                f"    {training_cmd['script']} \\",
+                f"    --config {training_cmd['config']} \\",
+                '    --output_dir "$NETWORK_CHECKPOINTS_DIR" \\',
+                '    --data_dir "$LOCAL_DATA_DIR"',
             ]
         )
 
@@ -478,18 +522,13 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
 
     script_lines.extend(
         [
-            f"#BSUB -M {lsf_config['total_memory']}",
+            # Memory allocation handled automatically by GPU queue
             f"#BSUB -R \"span[hosts={lsf_config['span_hosts']}]\"",
-            f"#BSUB -R \"rusage[mem={lsf_config['total_memory']}]\"",
             f"#BSUB -o {lsf_config['output_file']}",
             f"#BSUB -e {lsf_config['error_file']}",
             f"#BSUB -q {lsf_config['queue']}",
         ]
     )
-
-    # Add exclusive node if configured
-    if lsf_config["exclusive_node"]:
-        script_lines.append("#BSUB -x")
 
     # Add email notifications if configured
     email = config.get("notifications", "email")
@@ -521,7 +560,6 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
             "",
             "# Environment setup",
             'echo "Setting up environment..."',
-            "source ~/.bashrc",
         ]
     )
 
@@ -529,6 +567,14 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
     conda_env = config.get("environment", "conda_env")
     if conda_env:
         script_lines.append(f"conda activate {conda_env}")
+
+    micromamba_env = config.get("environment", "micromamba_env")
+    if micromamba_env:
+        script_lines.extend([
+            "# Initialize micromamba for this shell",
+            'eval "$(micromamba shell hook --shell bash)"',
+            f"micromamba activate {micromamba_env}"
+        ])
 
     # Add module loading if specified
     modules = config.get("environment", "modules_to_load")
@@ -540,6 +586,13 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
 
     script_lines.extend(
         [
+            "",
+            "# Debug environment",
+            'echo "Environment debugging info:"',
+            'echo "Python path: $(which python3 2>/dev/null || echo \'python3 not found\')"',
+            'echo "Current directory: $(pwd)"',
+            'echo "PATH: $PATH"',
+            'echo "User: $(whoami)"',
             "",
             'echo "LSF GPU allocation:"',
             'echo "LSB_HOSTS: $LSB_HOSTS"',
@@ -663,10 +716,10 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
                 "    --nproc_per_node=$NUM_GPUS \\",
                 "    --master_addr=$MASTER_ADDR \\",
                 f"    --master_port={current_port} \\",
-                "    train_distributed.py \\",
-                "    --config_dir medical_segmentation/configs \\",
-                '    --results_dir "$NETWORK_RESULTS_DIR" \\',
-                '    --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"',
+                "    medical_segmentation/train.py \\",
+                "    --config medical_segmentation/configs/rat_multiscale.yaml \\",
+                '    --output_dir "$NETWORK_CHECKPOINTS_DIR" \\',
+                '    --data_dir "$LOCAL_DATA_DIR"',
                 "",
             ]
         )
@@ -683,10 +736,10 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
                 "        --nproc_per_node=$NUM_GPUS \\",
                 "        --master_addr=$MASTER_ADDR \\",
                 f"        --master_port={current_port} \\",
-                "        train_distributed.py \\",
-                "        --config_dir object_detection/configs \\",
-                '        --results_dir "$NETWORK_RESULTS_DIR" \\',
-                '        --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"',
+                "        object_detection/train.py \\",
+                "        --config object_detection/configs/multi_scale.yaml \\",
+                '        --output_dir "$NETWORK_CHECKPOINTS_DIR" \\',
+                '        --data_dir "$LOCAL_DATA_DIR"',
                 "fi",
                 "",
             ]
@@ -704,10 +757,10 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
                 "        --nproc_per_node=$NUM_GPUS \\",
                 "        --master_addr=$MASTER_ADDR \\",
                 f"        --master_port={current_port} \\",
-                "        train_distributed.py \\",
-                "        --config_dir ablations/configs \\",
-                '        --results_dir "$NETWORK_RESULTS_DIR" \\',
-                '        --checkpoint_dir "$NETWORK_CHECKPOINTS_DIR"',
+                "        ablations/ablation_study.py \\",
+                "        --config ablations/configs/ablation.yaml \\",
+                '        --output_dir "$NETWORK_CHECKPOINTS_DIR" \\',
+                '        --data_dir "$LOCAL_DATA_DIR"',
                 "fi",
                 "",
             ]

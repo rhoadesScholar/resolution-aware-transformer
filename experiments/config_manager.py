@@ -108,7 +108,6 @@ class RATConfig:
             "cpus_per_gpu": self.get("cluster", "cpus_per_gpu"),
             "memory_mb_per_gpu": self.get("cluster", "memory_mb_per_gpu"),
             "span_hosts": self.get("cluster", "span_hosts"),
-            "exclusive_node": self.get("cluster", "exclusive_node"),
         }
 
     def get_paths_config(self) -> Dict[str, Path]:
@@ -191,7 +190,6 @@ class RATConfig:
             "walltime_hours": walltime_hours,  # Can be None for no time limit
             "gpu_mode": cluster_config["gpu_mode"],
             "span_hosts": cluster_config["span_hosts"],
-            "exclusive_node": cluster_config["exclusive_node"],
             "output_file": paths_config["lsf_logs_dir"] / f"{job_name}_%J.out",
             "error_file": paths_config["lsf_logs_dir"] / f"{job_name}_%J.err",
         }

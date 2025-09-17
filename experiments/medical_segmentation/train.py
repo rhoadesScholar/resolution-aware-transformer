@@ -9,8 +9,16 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-import wandb
 import yaml
+
+# TensorBoard for logging
+try:
+    from torch.utils.tensorboard import SummaryWriter
+except ImportError:
+    try:
+        from tensorboardX import SummaryWriter
+    except ImportError:
+        SummaryWriter = None
 
 # Add common utilities to path
 sys.path.append(str(Path(__file__).parent.parent / "common"))
@@ -279,13 +287,16 @@ def main():
     tracker.log_config(config)
     tracker.start_timer()
 
-    # Initialize wandb if configured
-    if config.get("wandb", {}).get("enabled", False):
-        wandb.init(
-            project=config["wandb"].get("project", "rat-medical-segmentation"),
-            name=config["wandb"].get("name", "experiment"),
-            config=config,
-        )
+    # Initialize tensorboard if configured
+    writer = None
+    if config.get("logging", {}).get("backend") == "tensorboard":
+        if SummaryWriter is not None:
+            log_dir = Path(config["logging"]["log_dir"]) / "medical_segmentation"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            writer = SummaryWriter(log_dir=str(log_dir))
+            logger.info(f"TensorBoard logging to: {log_dir}")
+        else:
+            logger.warning("TensorBoard not available, skipping logging")
 
     logger.info("Starting medical segmentation experiment")
     logger.info(f"Device: {device}")
@@ -407,14 +418,12 @@ def main():
         for key, value in val_metrics.items():
             tracker.log_metric(f"val_{key}", value, epoch)
 
-        if config.get("wandb", {}).get("enabled", False):
-            wandb.log(
-                {
-                    "epoch": epoch,
-                    **{f"train_{k}": v for k, v in train_metrics.items()},
-                    **{f"val_{k}": v for k, v in val_metrics.items()},
-                }
-            )
+        # TensorBoard logging
+        if writer is not None:
+            for key, value in train_metrics.items():
+                writer.add_scalar(f"train/{key}", value, epoch)
+            for key, value in val_metrics.items():
+                writer.add_scalar(f"val/{key}", value, epoch)
 
         # Save best model
         if val_metrics["dice"] > best_dice:
@@ -446,8 +455,9 @@ def main():
 
     tracker.save_results()
 
-    if config.get("wandb", {}).get("enabled", False):
-        wandb.finish()
+    # Close TensorBoard writer
+    if writer is not None:
+        writer.close()
 
 
 if __name__ == "__main__":

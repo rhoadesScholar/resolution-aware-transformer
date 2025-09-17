@@ -100,7 +100,7 @@ export WORLD_SIZE=${1:-8}  # Default to 8 GPUs
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
 # Configuration
-CONFIG_DIR=${2:-"experiments/medical_segmentation/configs"}
+CONFIG_DIR=${2:-"medical_segmentation/configs"}
 RESULTS_DIR=${3:-"/shared/results/rat_experiments"}
 CHECKPOINT_DIR=${4:-"/shared/checkpoints/rat"}
 
@@ -119,7 +119,7 @@ torchrun \\
     --nproc_per_node=$WORLD_SIZE \\
     --master_addr=localhost \\
     --master_port=12355 \\
-    experiments/train_distributed.py \\
+    train_distributed.py \\
     --config_dir "$CONFIG_DIR" \\
     --results_dir "$RESULTS_DIR" \\
     --checkpoint_dir "$CHECKPOINT_DIR"
@@ -296,7 +296,7 @@ if __name__ == "__main__":
     main()
 '''
 
-    trainer_path = Path("experiments/train_distributed.py")
+    trainer_path = Path("train_distributed.py")
     with open(trainer_path, "w") as f:
         f.write(trainer_code)
 
@@ -332,21 +332,21 @@ def main():
     print("Updating experiment configurations for cluster training...")
 
     # Update medical segmentation configs
-    med_configs_dir = Path("experiments/medical_segmentation/configs")
+    med_configs_dir = Path("medical_segmentation/configs")
     if med_configs_dir.exists():
         for config_file in med_configs_dir.glob("*.yaml"):
             if not config_file.name.startswith("cluster_"):
                 update_config_for_cluster(config_file, updates)
 
     # Update object detection configs
-    obj_configs_dir = Path("experiments/object_detection/configs")
+    obj_configs_dir = Path("object_detection/configs")
     if obj_configs_dir.exists():
         for config_file in obj_configs_dir.glob("*.yaml"):
             if not config_file.name.startswith("cluster_"):
                 update_config_for_cluster(config_file, updates)
 
     # Update ablation configs
-    abl_configs_dir = Path("experiments/ablations/configs")
+    abl_configs_dir = Path("ablations/configs")
     if abl_configs_dir.exists():
         for config_file in abl_configs_dir.glob("*.yaml"):
             if not config_file.name.startswith("cluster_"):

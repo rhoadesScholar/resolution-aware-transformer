@@ -170,6 +170,14 @@ def generate_data_setup_for_experiment(exp_type):
             "fi",
             "",
             'echo "ISIC dataset setup completed."',
+            "",
+            "# Set the correct data directory path based on what was created",
+            'if [ "$USE_SAMPLE_DATA" = "true" ] || [ -z "$ISIC_SOURCE" ]; then',
+            '    ACTUAL_DATA_DIR="$LOCAL_DATA_DIR/sample_ISIC2018"',
+            "else",
+            '    ACTUAL_DATA_DIR="$LOCAL_DATA_DIR/ISIC2018"',
+            "fi",
+            'echo "Using data directory: $ACTUAL_DATA_DIR"',
         ]
     
     elif exp_type["name"] == "object_detection":
@@ -244,6 +252,14 @@ def generate_data_setup_for_experiment(exp_type):
             "fi",
             "",
             'echo "ISIC dataset setup completed."',
+            "",
+            "# Set the correct data directory path based on what was created",
+            'if [ "$USE_SAMPLE_DATA" = "true" ] || [ -z "$ISIC_SOURCE" ]; then',
+            '    ACTUAL_DATA_DIR="$LOCAL_DATA_DIR/sample_ISIC2018"',
+            "else",
+            '    ACTUAL_DATA_DIR="$LOCAL_DATA_DIR/ISIC2018"',
+            "fi",
+            'echo "Using data directory: $ACTUAL_DATA_DIR"',
         ]
     
     else:
@@ -412,7 +428,7 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
                 f"    {training_cmd['script']} \\",
                 f"    --config {training_cmd['config']} \\",
                 '    --output_dir "$NETWORK_CHECKPOINTS_DIR" \\',
-                '    --data_dir "$LOCAL_DATA_DIR"',
+                '    --data_dir "${ACTUAL_DATA_DIR:-$LOCAL_DATA_DIR}"',
             ]
         )
 

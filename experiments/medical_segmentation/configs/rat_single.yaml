@@ -38,11 +38,10 @@ training:
   grad_clip: 1.0
   save_freq: 10
 
-# Weights & Biases logging (optional)
-wandb:
-  enabled: false
-  project: "rat-medical-segmentation"
-  name: "rat_single_isic2018"
+# TensorBoard logging configuration
+logging:
+  backend: "tensorboard"
+  log_dir: "results/tensorboard_logs"
 
 # Debug mode
 debug: false

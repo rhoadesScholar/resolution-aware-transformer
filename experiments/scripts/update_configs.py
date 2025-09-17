@@ -49,7 +49,7 @@ def update_yaml_file(config_path: Path, updates: Dict[str, Any]):
 
 def update_medical_segmentation_configs(data_dir: str):
     """Update medical segmentation configuration files."""
-    configs_dir = Path("experiments/medical_segmentation/configs")
+    configs_dir = Path("medical_segmentation/configs")
 
     if not configs_dir.exists():
         print(f"Warning: {configs_dir} not found")
@@ -69,7 +69,7 @@ def update_medical_segmentation_configs(data_dir: str):
 
 def update_object_detection_configs(data_dir: str):
     """Update object detection configuration files."""
-    configs_dir = Path("experiments/object_detection/configs")
+    configs_dir = Path("object_detection/configs")
 
     if not configs_dir.exists():
         print(f"Warning: {configs_dir} not found")
@@ -89,7 +89,7 @@ def update_object_detection_configs(data_dir: str):
 
 def update_ablation_configs(data_dir: str):
     """Update ablation study configuration files."""
-    configs_dir = Path("experiments/ablations/configs")
+    configs_dir = Path("ablations/configs")
 
     if not configs_dir.exists():
         print(f"Warning: {configs_dir} not found")
@@ -170,7 +170,7 @@ def create_quick_test_configs(isic_dir: str, coco_dir: str):
     }
 
     # Save quick configs
-    quick_configs_dir = Path("experiments/configs")
+    quick_configs_dir = Path("configs")
     quick_configs_dir.mkdir(exist_ok=True)
 
     with open(quick_configs_dir / "quick_test_isic.yaml", "w") as f:
@@ -283,8 +283,8 @@ def main():
 
     print("\nConfiguration update complete!")
     print("\nNext steps:")
-    print("1. Run quick tests: python experiments/run_experiments.py --quick")
-    print("2. Run full experiments: python experiments/run_experiments.py")
+    print("1. Run quick tests: python run_experiments.py --quick")
+    print("2. Run full experiments: python run_experiments.py")
 
 
 if __name__ == "__main__":

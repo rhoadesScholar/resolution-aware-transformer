@@ -1,0 +1,118 @@
+checkpoints:
+  mode: max
+  monitor: val_dice_score
+  save_dir: /nrs/cellmap/rhoadesj/resolution-aware-transformer/experiments/checkpoints
+  save_last: true
+  save_top_k: 3
+cluster:
+  distributed_backend: nccl
+  find_unused_parameters: true
+  num_gpus: 8
+data:
+  augmentation:
+    color_jitter: 0.1
+    multi_scale_jitter: 0.1
+    normalize:
+      mean:
+      - 0.485
+      - 0.456
+      - 0.406
+      std:
+      - 0.229
+      - 0.224
+      - 0.225
+    random_crop: false
+    random_flip: 0.5
+  batch_size: 8
+  data_dir: /tmp/rat_data/rat_data_146598947
+  dataset: coco
+  image_size: 800
+  max_size: 1333
+  multi_scale_training: true
+  num_workers: 16
+  persistent_workers: true
+  pin_memory: true
+  prefetch_factor: 2
+  scales:
+  - 800
+  - 400
+  - 200
+  train_split: train2017
+  val_split: val2017
+description: Multi-scale object detection with RAT
+eval:
+  early_stopping_patience: 25
+  eval_interval: 5
+  eval_scales:
+  - 800
+  - 400
+  - 200
+  monitor_metric: mAP@0.5
+  save_top_k: 3
+  test_time_augmentation: true
+logging:
+  backend: tensorboard
+  log_dir: /nrs/cellmap/rhoadesj/resolution-aware-transformer/experiments/results/tensorboard_logs
+  log_freq: 50
+  save_predictions: true
+model:
+  activation: relu
+  backbone: resolution_aware_transformer
+  bbox_loss_coef: 5.0
+  class_loss_coef: 1.0
+  cross_scale_fusion: true
+  dim_feedforward: 2048
+  dropout: 0.1
+  feature_fusion_method: attention
+  focal_alpha: 0.25
+  focal_gamma: 2.0
+  giou_loss_coef: 2.0
+  hidden_dim: 256
+  multi_scale: true
+  name: rat_detection
+  normalize_before: false
+  num_classes: 91
+  num_decoder_layers: 6
+  num_encoder_layers: 6
+  num_heads: 8
+  num_queries: 100
+  positional_encoding: rose
+  scale_weights:
+  - 1.0
+  - 0.5
+  - 0.25
+  scales:
+  - 800
+  - 400
+  - 200
+  spatial_group_size: 8
+  use_sparse_attention: true
+name: rat_detection_multi_scale
+seed: 42
+training:
+  accumulate_grad_batches: 2
+  batch_size: 2
+  effective_batch_size: 16
+  eval_freq: 2
+  gradient_accumulation_steps: 4
+  gradient_clip: 0.1
+  mixed_precision: true
+  num_epochs: 150
+  optimizer:
+    betas:
+    - 0.9
+    - 0.999
+    lr: 8e-5
+    name: adamw
+    weight_decay: 1e-4
+  save_freq: 5
+  scale_sampling: random
+  scale_schedule:
+    single_scale_epochs: 10
+    start_epoch: 0
+    transition_epochs: 20
+  scheduler:
+    min_lr: 1e-6
+    name: cosine
+    warmup_steps: 1000
+  warmup_epochs: 10

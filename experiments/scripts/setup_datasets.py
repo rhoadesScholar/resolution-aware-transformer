@@ -315,7 +315,7 @@ def main():
         print("Dataset setup complete!")
         print(f"Data directory: {args.data_dir}")
         print("You can now run experiments with:")
-        print(f"  python experiments/run_experiments.py --data_dir {args.data_dir}")
+        print(f"  python run_experiments.py --data_dir {args.data_dir}")
         print("=" * 50)
 
     except Exception as e:

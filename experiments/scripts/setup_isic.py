@@ -339,7 +339,7 @@ def main():
 
     print("\nNext steps:")
     print(f"1. Update config files to point to: {args.output_dir}")
-    print("2. Run experiments with: python experiments/run_experiments.py")
+    print("2. Run experiments with: python run_experiments.py")
 
 
 if __name__ == "__main__":

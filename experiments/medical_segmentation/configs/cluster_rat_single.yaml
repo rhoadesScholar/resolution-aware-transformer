@@ -1,0 +1,51 @@
+checkpoints:
+  mode: max
+  monitor: val_dice_score
+  save_dir: /nrs/cellmap/rhoadesj/resolution-aware-transformer/experiments/checkpoints
+  save_last: true
+  save_top_k: 3
+cluster:
+  distributed_backend: nccl
+  find_unused_parameters: true
+  num_gpus: 8
+data:
+  data_dir: /tmp/rat_data/rat_data_146598947
+  image_size: 256
+  num_workers: 16
+  persistent_workers: true
+  pin_memory: true
+  prefetch_factor: 2
+debug: false
+description: Single-scale Resolution Aware Transformer for skin lesion segmentation
+experiment_name: rat_single_isic2018
+logging:
+  backend: tensorboard
+  log_dir: /nrs/cellmap/rhoadesj/resolution-aware-transformer/experiments/results/tensorboard_logs
+  log_freq: 50
+  save_predictions: true
+model:
+  attention_type: dense
+  feature_dims: 256
+  input_features: 3
+  learnable_rose: true
+  mlp_dropout: 0.1
+  mlp_ratio: 4
+  multi_scale: false
+  name: rat
+  num_blocks: 4
+  num_heads: 16
+  spatial_dims: 2
+seed: 42
+training:
+  batch_size: 8
+  effective_batch_size: 64
+  epochs: 100
+  eval_freq: 2
+  grad_clip: 1.0
+  gradient_accumulation_steps: 4
+  learning_rate: 0.0001
+  loss: combined
+  mixed_precision: true
+  save_freq: 5
+  scheduler: cosine
+  weight_decay: 0.01

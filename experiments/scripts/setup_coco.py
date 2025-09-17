@@ -273,16 +273,16 @@ def create_sample_coco_dataset(output_dir: str, num_samples_per_split: int = 10)
                 else:
                     draw.ellipse([x1, y1, x2, y2], fill=color)
 
-                # Create annotation
-                width, height = x2 - x1, y2 - y1
-                area = width * height
-                category_id = np.random.choice([cat["id"] for cat in categories])
+                # Create annotation - convert NumPy types to Python native types
+                width, height = int(x2 - x1), int(y2 - y1)
+                area = int(width * height)
+                category_id = int(np.random.choice([cat["id"] for cat in categories]))
 
                 annotation = {
                     "id": ann_id,
                     "image_id": i + 1,
                     "category_id": category_id,
-                    "bbox": [x1, y1, width, height],
+                    "bbox": [int(x1), int(y1), width, height],
                     "area": area,
                     "iscrowd": 0,
                 }
@@ -390,7 +390,7 @@ def main():
 
     print("\nNext steps:")
     print(f"1. Update config files to point to: {args.output_dir}")
-    print("2. Run experiments with: python experiments/run_experiments.py")
+    print("2. Run experiments with: python run_experiments.py")
 
 
 if __name__ == "__main__":

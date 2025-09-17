@@ -259,10 +259,10 @@ def print_next_steps(data_dir, quick=False):
             print(f"  📁 {subdir.name}: {subdir}")
 
     print("\nConfiguration files updated in:")
-    print("  📁 experiments/*/configs/")
+    print("  📁 */configs/")
 
     print("\nFor more options, see:")
-    print("  python experiments/run_experiments.py --help")
+    print("  python run_experiments.py --help")
     print("=" * 60)
 
 

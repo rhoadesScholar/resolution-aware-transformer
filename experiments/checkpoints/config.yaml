@@ -1,0 +1,29 @@
+ablations:
+  architecture_depth: true
+  attention_type: true
+  feature_dims: true
+  multi_resolution: true
+  positional_encoding: true
+data:
+  batch_size: 48
+  data_dir: /path/to/ISIC2018
+  image_size: 256
+  num_workers: 20
+description: Comprehensive ablation study for Resolution Aware Transformer components
+evaluation:
+  batch_size: 96
+experiment_name: rat_ablation_study
+model:
+  base:
+    attention_type: dense
+    feature_dims: 256
+    input_features: 3
+    learnable_rose: true
+    mlp_dropout: 0.1
+    mlp_ratio: 4
+    multi_scale: false
+    num_blocks: 4
+    num_heads: 16
+    spatial_dims: 2
+quick: false
+seed: 42

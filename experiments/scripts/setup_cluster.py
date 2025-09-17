@@ -190,7 +190,7 @@ class ClusterSetup:
 
     def _update_medical_segmentation_configs(self, cluster_config: Dict[str, Any]):
         """Update medical segmentation configs for cluster."""
-        configs_dir = Path("experiments/medical_segmentation/configs")
+        configs_dir = Path("medical_segmentation/configs")
 
         for config_file in configs_dir.glob("*.yaml"):
             with open(config_file, "r") as f:
@@ -229,7 +229,7 @@ class ClusterSetup:
 
     def _update_object_detection_configs(self, cluster_config: Dict[str, Any]):
         """Update object detection configs for cluster."""
-        configs_dir = Path("experiments/object_detection/configs")
+        configs_dir = Path("object_detection/configs")
 
         if not configs_dir.exists():
             return
@@ -271,7 +271,7 @@ class ClusterSetup:
 
     def _update_ablation_configs(self, cluster_config: Dict[str, Any]):
         """Update ablation configs for cluster."""
-        configs_dir = Path("experiments/ablations/configs")
+        configs_dir = Path("ablations/configs")
 
         if not configs_dir.exists():
             return
@@ -318,7 +318,7 @@ class ClusterSetup:
         }
 
         # Save distributed config
-        dist_config_dir = Path("experiments/configs")
+        dist_config_dir = Path("configs")
         dist_config_dir.mkdir(exist_ok=True)
 
         with open(dist_config_dir / "distributed.yaml", "w") as f:
@@ -368,8 +368,8 @@ torchrun \\
     --nproc_per_node={self.num_gpus} \\
     --master_addr=localhost \\
     --master_port=12355 \\
-    experiments/run_distributed_experiments.py \\
-    --config_dir experiments/configs \\
+    run_distributed_experiments.py \\
+    --config_dir configs \\
     --results_dir {self.network_results_dir} \\
     --checkpoint_dir {self.network_checkpoints_dir}
 
@@ -416,8 +416,8 @@ torchrun \\
     --nproc_per_node=2 \\
     --master_addr=localhost \\
     --master_port=12356 \\
-    experiments/run_distributed_experiments.py \\
-    --config_dir experiments/configs \\
+    run_distributed_experiments.py \\
+    --config_dir configs \\
     --results_dir {self.network_results_dir} \\
     --checkpoint_dir {self.network_checkpoints_dir} \\
     --quick

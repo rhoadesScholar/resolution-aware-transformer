@@ -18,9 +18,9 @@ model:
   base:
     spatial_dims: 2
     input_features: 3
-    feature_dims: 256
+    feature_dims: 128  # Reduced from 256 for memory efficiency
     num_blocks: 4
-    num_heads: 16
+    num_heads: 8  # Reduced from 16 for better memory usage
     attention_type: "dense"
     learnable_rose: true
     mlp_ratio: 4
@@ -30,7 +30,7 @@ model:
 # Training configuration
 training:
   num_epochs: 10  # Short for ablation studies
-  batch_size: 48  # Optimized for H200
+  batch_size: 16  # Reduced from 48 for memory safety
   optimizer:
     name: "adamw"
     lr: 1e-4
@@ -43,7 +43,7 @@ training:
 
 # Evaluation configuration
 evaluation:
-  batch_size: 48  # Optimized for H200 - was 16
+  batch_size: 16  # Reduced from 48 for memory safety
 
 # Ablation studies to run
 ablations:

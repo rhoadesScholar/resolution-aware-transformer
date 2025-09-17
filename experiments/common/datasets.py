@@ -1,6 +1,7 @@
 """Dataset utilities for experiments."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
 
@@ -9,6 +10,8 @@ from sklearn.model_selection import train_test_split
 import torch
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
+
+logger = logging.getLogger(__name__)
 
 
 class ISICDataset(Dataset):
@@ -247,8 +250,31 @@ class COCODataset(Dataset):
         # In practice, use pycocotools for proper COCO loading
 
         ann_file = self.data_dir / f"annotations/instances_{self.split}.json"
+
+        # Debug logging
+        logger.debug(f"COCODataset data_dir = {self.data_dir}")
+        logger.debug(f"Looking for annotation file: {ann_file}")
+        logger.debug(f"Annotation file exists: {ann_file.exists()}")
+
         if not ann_file.exists():
-            raise ValueError(f"Annotation file not found: {ann_file}")
+            # Try to provide helpful error message
+            parent_dir = self.data_dir.parent
+            possible_paths = []
+            if parent_dir.exists():
+                for subdir in parent_dir.iterdir():
+                    if subdir.is_dir() and "coco" in subdir.name.lower():
+                        possible_ann = (
+                            subdir / f"annotations/instances_{self.split}.json"
+                        )
+                        if possible_ann.exists():
+                            possible_paths.append(possible_ann)
+
+            error_msg = f"Annotation file not found: {ann_file}"
+            if possible_paths:
+                error_msg += f"\n\nFound possible annotation files: {possible_paths}"
+                error_msg += f"\nTry using one of these parent directories as data_dir"
+
+            raise ValueError(error_msg)
 
         with open(ann_file, "r") as f:
             self.coco_data = json.load(f)

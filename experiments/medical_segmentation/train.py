@@ -102,7 +102,8 @@ def create_deepspeed_config(args, config):
         "optimizer": {
             "type": "AdamW",
             "params": {
-                "lr": config["training"]["learning_rate"],
+                "lr": config["training"].get("learning_rate")
+                or config["training"].get("optimizer", {}).get("lr", 1e-4),
                 "weight_decay": config["training"].get("weight_decay", 1e-4),
                 "betas": [0.9, 0.999],
                 "eps": 1e-8,
@@ -631,9 +632,15 @@ def main():
             logger.info("Model wrapped with DistributedDataParallel")
 
         # Create optimizer and scheduler for traditional training
+        # Handle different config structures for learning rate
+        learning_rate = config["training"].get("learning_rate")
+        if learning_rate is None:
+            # Try optimizer sub-config
+            learning_rate = config["training"].get("optimizer", {}).get("lr", 1e-4)
+
         optimizer = optim.AdamW(
             model.parameters(),
-            lr=config["training"]["learning_rate"],
+            lr=learning_rate,
             weight_decay=config["training"].get("weight_decay", 1e-4),
         )
 

@@ -23,7 +23,7 @@ data:
     random_crop: false
     random_flip: 0.5
   batch_size: 16
-  data_dir: /tmp/rat_data/rat_data_146605627
+  data_dir: /tmp/rat_data/rat_data_146607625
   dataset: coco
   image_size: 800
   max_size: 1333

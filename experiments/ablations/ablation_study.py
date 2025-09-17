@@ -116,11 +116,7 @@ def run_ablation_study(config, args):
     )
 
     if logger:
-        if logger:
-
-            if logger:
-
-                logger.info(f"Validation dataset: {len(val_dataset)} samples")
+        logger.info(f"Validation dataset: {len(val_dataset)} samples")
 
     # Define ablation configurations
     ablation_configs = []
@@ -203,6 +199,16 @@ def run_ablation_study(config, args):
             cfg = config["model"]["base"].copy()
             cfg["name"] = "rat"
             cfg["feature_dims"] = dim
+
+            # Use memory-efficient settings for high dimensions
+            if dim >= 512:
+                cfg["attention_type"] = (
+                    "sparse"  # Use sparse attention for memory efficiency
+                )
+                cfg["num_blocks"] = 2  # Reduce number of blocks
+            elif dim >= 256:
+                cfg["num_blocks"] = 3  # Slightly reduce for 256
+
             ablation_configs.append(
                 {"name": f"dim_{dim}", "config": cfg, "category": "feature_dims"}
             )
@@ -210,8 +216,19 @@ def run_ablation_study(config, args):
     if logger:
         logger.info(f"Running {len(ablation_configs)} ablation experiments")
 
-    # Run experiments
+    # Run experiments (only on rank 0 to avoid GPU conflicts)
+    rank = int(os.environ.get("RANK", 0))
+    if rank != 0:
+        if logger:
+            logger.info("Non-rank-0 process exiting to avoid GPU conflicts")
+        return pd.DataFrame()  # Return empty results for non-rank-0 processes
+
     results = []
+
+    # Ensure only rank 0 uses GPU for ablations
+    device = get_device()
+    if logger:
+        logger.info(f"Using device: {device} for ablation experiments")
 
     for exp_config in tqdm(ablation_configs, desc="Ablation experiments"):
         if logger:
@@ -243,7 +260,24 @@ def run_ablation_study(config, args):
                 current_loader = val_loader_ms
                 eval_config = model_config
             else:
-                current_loader = val_loader
+                # Adjust batch size for memory-intensive experiments
+                batch_size = config["evaluation"]["batch_size"]
+                feature_dims = model_config.get("feature_dims", 256)
+
+                # Reduce batch size for high-dimensional models
+                if feature_dims >= 512:
+                    batch_size = max(1, batch_size // 8)  # Much smaller for 512+
+                elif feature_dims >= 256:
+                    batch_size = max(1, batch_size // 4)  # Smaller for 256+
+
+                val_loader_memory_adjusted = torch.utils.data.DataLoader(
+                    val_dataset,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    num_workers=config["data"].get("num_workers", 4),
+                    pin_memory=True,
+                )
+                current_loader = val_loader_memory_adjusted
                 eval_config = model_config
 
             model = create_model(
@@ -274,7 +308,23 @@ def run_ablation_study(config, args):
 
             # Evaluate model
             eval_config["quick"] = args.quick
-            metrics = evaluate_model(model, current_loader, device, eval_config)
+            try:
+                metrics = evaluate_model(model, current_loader, device, eval_config)
+
+                # Validate metrics dictionary
+                required_keys = ["dice", "iou", "sensitivity", "specificity"]
+                missing_keys = [key for key in required_keys if key not in metrics]
+                if missing_keys:
+                    if logger:
+                        logger.error(
+                            f"Missing metrics keys: {missing_keys}, got: {list(metrics.keys())}"
+                        )
+                    continue
+
+            except Exception as e:
+                if logger:
+                    logger.error(f"Evaluation failed for {exp_config['name']}: {e}")
+                continue
 
             # Calculate improvement over baseline
             baseline_dice = (

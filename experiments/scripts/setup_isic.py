@@ -270,9 +270,9 @@ def create_sample_dataset(output_dir: str, num_samples: int = 20):
 
         # Add some noise to mask boundary
         if np.random.random() > 0.3:  # 70% of samples have lesions
-            mask = Image.fromarray(mask_array, mode="L")
+            mask = Image.fromarray(mask_array.astype(np.uint8))
         else:
-            mask = Image.fromarray(np.zeros((256, 256), dtype=np.uint8), mode="L")
+            mask = Image.fromarray(np.zeros((256, 256), dtype=np.uint8))
 
         mask_path = masks_dir / f"ISIC_sample_{i:07d}_segmentation.png"
         mask.save(mask_path)

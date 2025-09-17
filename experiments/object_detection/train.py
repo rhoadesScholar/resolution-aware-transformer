@@ -24,6 +24,7 @@ try:
 
     DEEPSPEED_AVAILABLE = True
 except ImportError:
+    deepspeed = None
     DEEPSPEED_AVAILABLE = False
     print("Warning: DeepSpeed not available. Install with: pip install deepspeed")
 

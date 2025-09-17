@@ -29,8 +29,8 @@ try:
 
     DEEPSPEED_AVAILABLE = True
 except ImportError:
+    deepspeed = None
     DEEPSPEED_AVAILABLE = False
-    print("Warning: DeepSpeed not available. Install with: pip install deepspeed")
 
 # TensorBoard for logging
 try:
@@ -193,8 +193,13 @@ def parse_args():
     )
 
     # Parse args, but let DeepSpeed handle distributed args if present
-    if DEEPSPEED_AVAILABLE:
-        args = deepspeed.add_config_arguments(parser)
+    if DEEPSPEED_AVAILABLE and deepspeed is not None:
+        # Check for existing DeepSpeed arguments before adding
+        if (
+            not hasattr(parser, "_option_string_actions")
+            or "--deepspeed" not in parser._option_string_actions
+        ):
+            parser = deepspeed.add_config_arguments(parser)
         args = parser.parse_args()
     else:
         args = parser.parse_args()

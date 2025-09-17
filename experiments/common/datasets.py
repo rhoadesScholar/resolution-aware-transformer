@@ -199,6 +199,8 @@ class COCODataset(Dataset):
         multi_scale: bool = False,
         scales: List[int] = [512, 256, 128],
         transform: Optional[Callable] = None,
+        augment: bool = False,
+        debug: bool = False,
     ):
         """
         Initialize COCO dataset.
@@ -210,6 +212,8 @@ class COCODataset(Dataset):
             multi_scale: Whether to return multi-scale images
             scales: List of scales for multi-scale training
             transform: Image transforms
+            augment: Whether to apply data augmentation
+            debug: Whether to use a smaller subset for debugging
         """
         self.data_dir = Path(data_dir)
         self.split = split
@@ -219,6 +223,8 @@ class COCODataset(Dataset):
         self.multi_scale = multi_scale
         self.scales = scales
         self.transform = transform
+        self.augment = augment
+        self.debug = debug
 
         # Load annotations
         self._load_annotations()

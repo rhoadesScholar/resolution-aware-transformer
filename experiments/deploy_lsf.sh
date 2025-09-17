@@ -145,6 +145,20 @@ submit_quick_test() {
     check_lsf
     check_directories
     
+    # Run pre-deployment checks and fixes
+    echo -e "${YELLOW}Running pre-deployment checks...${NC}"
+    if ! python3 scripts/fix_common_issues.py; then
+        print_warning "Some issues detected. Please review the output above."
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Cancelled."
+            exit 0
+        fi
+    else
+        print_success "Pre-deployment checks passed"
+    fi
+    
     if [ ! -f "$CLUSTER_SCRIPTS_DIR/submit_quick_test.lsf" ]; then
         print_error "Quick test script not found: $CLUSTER_SCRIPTS_DIR/submit_quick_test.lsf"
         exit 1
@@ -180,6 +194,20 @@ submit_full_experiments() {
     
     check_lsf
     check_directories
+    
+    # Run pre-deployment checks and fixes
+    echo -e "${YELLOW}Running pre-deployment checks...${NC}"
+    if ! python3 scripts/fix_common_issues.py; then
+        print_warning "Some issues detected. Please review the output above."
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Cancelled."
+            exit 0
+        fi
+    else
+        print_success "Pre-deployment checks passed"
+    fi
     
     # Check if parallel jobs are configured
     PARALLEL_JOBS=$(python3 config_manager.py --dump | grep "parallel_jobs" | cut -d'=' -f2 | xargs)

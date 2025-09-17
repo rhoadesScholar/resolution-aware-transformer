@@ -1,0 +1,328 @@
+# Resolution Aware Transformer - AI Coding Instructions
+
+## Project Overview
+The Resolution Aware Transformer (RAT) is a PyTorch implementation for multi-scale image analysis, particularly suited for microscopy and medical imaging. The architecture combines **Spatial Grouping Attention (SGA)**, **Rotary Spatial Embeddings (RoSE)**, and **Multi-resolution Processing** for handling image pyramids with different resolutions.
+
+## Core Architecture Components
+
+### Multi-Scale Processing Pipeline
+- **Input**: Single images or image pyramids at multiple resolutions (e.g., 256x256, 128x128, 64x64)
+- **Output**: Embeddings with spatial awareness and attention maps per scale
+- **Key Classes**: `ResolutionAwareTransformer` in `src/resolution_aware_transformer/resolution_aware_transformer.py`
+
+### Dependencies & Integration Points
+- **External Dependencies**: `spatial-grouping-attention`, `rotary-spatial-embeddings` packages
+- **Core Import Pattern**: Import from these packages, not local implementations
+- **Model Integration**: Wrappers in `experiments/common/models.py` for segmentation/detection tasks
+
+## Experiment Framework Structure
+
+### Configuration Management
+- **Central Config**: `experiments/config_manager.py` - handles both local and cluster configurations
+- **YAML Configs**: Task-specific configs in `experiments/{medical_segmentation,object_detection}/configs/`
+- **Cluster Configs**: Prefixed with `cluster_` for LSF/SLURM deployment
+- **DeepSpeed Integration**: `deepspeed_*.json` configs for ZeRO optimization stages
+
+### Multi-Experiment Coordination
+- **Orchestrator**: `experiments/run_experiments.py` - runs benchmark suites across tasks
+- **Distributed Training**: `experiments/train_distributed.py` - simplified multi-GPU coordinator
+- **Ablation Studies**: `experiments/ablations/ablation_study.py` - automated component testing
+
+### Data Pipeline Architecture
+```python
+# Multi-scale dataset pattern in experiments/common/datasets.py
+class ISICDataset(Dataset):
+    def __init__(self, multi_scale=False, scales=[256, 128, 64]):
+        self.scales = scales if multi_scale else [scales[0]]
+    
+    def __getitem__(self, idx):
+        if self.multi_scale:
+            return [self.transform_to_scale(image, s) for s in self.scales]
+        return self.transform(image)
+```
+
+### Distributed Training Patterns
+```python
+# Standard distributed setup in train.py files
+def setup_distributed():
+    if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
+        local_rank = int(os.environ["LOCAL_RANK"])
+        dist.init_process_group(backend="nccl")
+        torch.cuda.set_device(local_rank)
+        return rank, world_size, local_rank
+    return 0, 1, 0
+```
+
+### DeepSpeed Integration Framework
+- **Automatic Config Creation**: `create_deepspeed_config()` in training scripts
+- **ZeRO Stages**: Stage 2 (default), Stage 3 (ViT-Huge scale) with CPU offloading
+- **Memory Optimization**: Activation checkpointing, gradient accumulation, FP16
+
+### Model Configuration Pattern
+```yaml
+# Standard config structure across all experiments
+model:
+  name: "rat"
+  multi_scale: true/false
+  spatial_dims: 2  # or 3 for volumes
+  feature_dims: 128  # Embedding dimension
+  num_blocks: 4      # Transformer layers
+  attention_type: "dense"  # or "sparse"
+
+# Training configuration with DeepSpeed support
+training:
+  batch_size: 4      # Per-GPU batch size
+  learning_rate: 0.0001
+  grad_clip: 1.0     # Always use gradient clipping
+  scheduler: "cosine"
+
+# DeepSpeed integration (optional)
+deepspeed:
+  zero_stage: 2      # or 3 for maximum memory efficiency
+  cpu_offload: false # Enable for Stage 3
+```
+
+## Development Workflows
+
+### Local Development
+```bash
+# Setup with development dependencies
+make install-dev
+# Run tests with coverage
+make test-cov
+# Format and lint
+make format && make lint
+```
+
+### Cluster Deployment
+- **LSF Scripts**: `experiments/cluster/submit_*.lsf` for multi-GPU training
+- **Distributed Training**: `experiments/train_distributed.py` handles multi-GPU coordination
+- **Log Management**: `experiments/organize_logs.sh` for centralizing experiment outputs
+
+### Experiment Execution
+```bash
+# Run single experiment
+python experiments/medical_segmentation/train.py --config configs/rat_multiscale.yaml
+# Run full benchmark suite
+python experiments/run_experiments.py --experiments medical_seg object_det
+# Run ablation studies
+python experiments/ablations/ablation_study.py --config configs/ablation.yaml
+# Quick 2-GPU cluster test
+sbatch experiments/cluster/submit_quick_test.lsf
+```
+
+### Advanced Execution Patterns
+```bash
+# Distributed training with DeepSpeed
+deepspeed --num_gpus=8 experiments/medical_segmentation/train.py \
+  --config configs/cluster_rat_multiscale.yaml \
+  --deepspeed --zero_stage=2
+
+# Resume from checkpoint with specific GPU allocation
+CUDA_VISIBLE_DEVICES=0,1,2,3 python experiments/medical_segmentation/train.py \
+  --config configs/rat_multiscale.yaml \
+  --resume outputs/checkpoints/best_model.pth
+
+# Ablation study with custom experiment subset
+python experiments/ablations/ablation_study.py \
+  --experiments pe_rose attention_dense multiscale_true \
+  --epochs 10 --quick_eval
+```
+
+## Critical Patterns & Conventions
+
+### Memory Management for Multi-Scale
+- **Reduced Dimensions**: Use `feature_dims: 128`, `num_blocks: 2` for memory-constrained environments
+- **Batch Size Scaling**: Start with `batch_size: 4` for multi-scale experiments
+- **Gradient Clipping**: Always use `grad_clip: 1.0` in training configs
+
+### Error Handling Patterns
+```python
+# Standard try/catch for model imports
+try:
+    from resolution_aware_transformer import ResolutionAwareTransformer
+except ImportError:
+    print("Warning: Could not import RAT. Make sure it's installed.")
+    ResolutionAwareTransformer = None
+```
+
+### Spatial Dimension Handling
+- **2D Images**: `spatial_dims: 2`, input shape `[batch, channels, H, W]`
+- **3D Volumes**: `spatial_dims: 3`, input shape `[batch, channels, D, H, W]`
+- **Spacing Aware**: Use `input_spacing` parameter for medical imaging with known pixel sizes
+
+## Testing & Validation
+
+### Unit Tests
+- **Location**: `tests/test_resolution_aware_transformer.py`
+- **Coverage Target**: Focus on multi-scale input/output shape consistency
+- **Run Command**: `pytest tests/` or `make test`
+
+### Integration Tests
+- **Quick Validation**: `experiments/cluster/submit_quick_test.lsf` for 2-GPU testing
+- **Memory Testing**: Reduce model parameters before scaling up batch sizes or image resolutions
+
+## File Organization Rules
+
+### Source Code
+- **Core Model**: `src/resolution_aware_transformer/` - pure PyTorch implementation
+- **Experiments**: `experiments/` - application-specific wrappers and training scripts
+- **Common Utilities**: `experiments/common/` - shared datasets, models, metrics, utils
+
+### Configuration Files
+- **Local Development**: Standard YAML configs without `cluster_` prefix
+- **Cluster Deployment**: `cluster_*.yaml` configs with optimized resource settings
+- **DeepSpeed**: `deepspeed_*.json` for large-scale distributed training
+
+### Results & Logging
+- **TensorBoard Logs**: `experiments/results/tensorboard_logs/`
+- **LSF/SLURM Logs**: `experiments/results/lsf_logs/` (auto-organized by job ID)
+- **Experiment Outputs**: `experiments/results/experiment_logs/`
+
+## Key Debugging Points
+
+### Common Runtime Errors (From Actual Logs)
+
+#### 1. DeepSpeed Argument Conflicts
+**Error**: `argparse.ArgumentError: argument --deepspeed: conflicting option string`
+```python
+# Fix: Check for existing DeepSpeed arguments before adding
+if not hasattr(parser, '_option_string_actions') or '--deepspeed' not in parser._option_string_actions:
+    args = deepspeed.add_config_arguments(parser)
+```
+
+#### 2. Multi-GPU Process Collision 
+**Error**: Multiple processes starting same experiment simultaneously
+**Symptoms**: Duplicate log entries, garbled output in LSF logs
+```bash
+# Fix: Use RANK-aware initialization
+if int(os.environ.get('RANK', 0)) == 0:
+    # Only rank 0 process handles logging/checkpointing
+    setup_experiment_tracking()
+```
+
+#### 3. Dataset API Mismatches
+**Error**: `COCODataset.__init__() got an unexpected keyword argument 'augment'`
+```python
+# Fix: Validate dataset constructor signatures
+from experiments.common.datasets import COCODataset
+# Check __init__ parameters before passing custom arguments
+valid_params = inspect.signature(COCODataset.__init__).parameters
+filtered_kwargs = {k: v for k, v in kwargs.items() if k in valid_params}
+```
+
+#### 4. Pillow Deprecation Warnings
+**Error**: `'mode' parameter is deprecated and will be removed in Pillow 13`
+```python
+# Fix: Remove explicit mode parameter
+# OLD: mask = Image.fromarray(mask_array, mode="L")
+# NEW: mask = Image.fromarray(mask_array.astype(np.uint8))
+```
+
+#### 5. OMP Threading Conflicts
+**Warning**: `Setting OMP_NUM_THREADS environment variable for each process to be 1`
+```bash
+# Fix: Set optimal threading before distributed launch
+export OMP_NUM_THREADS=4  # Adjust based on CPU cores per GPU
+export MKL_NUM_THREADS=4
+```
+
+### Memory Debugging Workflow
+
+#### Stage 1: Quick Memory Test
+```bash
+# Start with minimal config for memory profiling
+python experiments/medical_segmentation/train.py \
+  --config configs/rat_multiscale.yaml \
+  --debug  # Uses smaller dataset/batch size
+```
+
+#### Stage 2: Progressive Scaling
+```yaml
+# Increment parameters in this order:
+# 1. batch_size: 2 → 4 → 8
+# 2. feature_dims: 64 → 128 → 256  
+# 3. num_blocks: 1 → 2 → 4
+# 4. multi_scale: false → true
+```
+
+#### Stage 3: Multi-GPU Memory Issues
+```bash
+# Check CUDA memory on each GPU during training
+nvidia-smi -l 1 | tee gpu_usage.log
+# Look for uneven memory distribution across GPUs
+```
+
+### LSF/SLURM Job Debugging
+
+#### Check Job Status and Resource Usage
+```bash
+# Monitor active jobs
+bjobs -u $USER  # LSF
+squeue -u $USER  # SLURM
+
+# Check job details and resource usage
+bjobs -l <job_id>
+squeue -j <job_id> --format="%.18i %.9P %.50j %.8u %.8T %.10M %.9l %.6D %R"
+```
+
+#### Analyze Log Files
+```bash
+# Quick error scanning across all LSF logs
+grep -r "Error\|Exception\|Traceback" experiments/results/lsf_logs/
+
+# Check for CUDA OOM specifically
+grep -r "out of memory\|CUDA_ERROR_OUT_OF_MEMORY" experiments/results/lsf_logs/
+
+# Monitor experiment progress
+tail -f experiments/results/lsf_logs/rat_*.out
+```
+
+#### Resource Allocation Issues
+```bash
+# Common LSF/SLURM resource problems:
+# 1. GPU allocation mismatch with --nproc_per_node
+# 2. Memory limits too low for multi-scale processing
+# 3. Time limits insufficient for large experiments
+
+# Debug resource allocation
+echo "Allocated GPUs: $CUDA_VISIBLE_DEVICES"
+echo "World size: $WORLD_SIZE"
+echo "Local rank: $LOCAL_RANK"
+```
+
+### Configuration Debugging Patterns
+
+#### Validate Config Loading
+```python
+# Always validate config structure before training
+def validate_config(config):
+    required_keys = ['model', 'training', 'data']
+    for key in required_keys:
+        assert key in config, f"Missing required config section: {key}"
+    
+    # Check model parameters for memory feasibility
+    if config['model']['feature_dims'] > 512 and not config.get('deepspeed'):
+        print("Warning: Large feature_dims without DeepSpeed may cause OOM")
+```
+
+#### Cluster vs Local Config Detection
+```python
+# Auto-detect execution environment
+def get_config_variant(config_path):
+    if 'SLURM_JOB_ID' in os.environ or 'LSB_JOBID' in os.environ:
+        cluster_config = config_path.replace('.yaml', '_cluster.yaml')
+        return cluster_config if Path(cluster_config).exists() else config_path
+    return config_path
+```
+
+### Common Issues
+1. **CUDA OOM**: Reduce `feature_dims`, `num_blocks`, or `batch_size` in configs
+2. **Multi-Scale Memory**: Disable `multi_scale: false` for initial testing
+3. **Import Errors**: Ensure `spatial-grouping-attention` and `rotary-spatial-embeddings` are installed
+4. **Cluster Job Failures**: Check LSF logs in `experiments/results/lsf_logs/`
+5. **DeepSpeed Conflicts**: Verify argument parsing order and avoid duplicate argument registration
+
+When modifying the core transformer architecture, always test with both 2D and 3D inputs, and verify multi-scale processing maintains consistent embedding dimensions across resolution levels.

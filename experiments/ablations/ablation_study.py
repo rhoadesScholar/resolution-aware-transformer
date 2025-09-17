@@ -84,14 +84,19 @@ def run_ablation_study(config, args):
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Setup logging
-    # Create proper logging directory - use results/experiment_logs instead of checkpoints
-    log_dir = output_dir.parent / "results" / "experiment_logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    logger = setup_logging(str(log_dir), "ablation_study")
-    tracker = ExperimentTracker("ablation_study", str(output_dir))
-    tracker.log_config(config)
-    tracker.start_timer()
+    # Setup logging (only on rank 0 to avoid duplicate logs)
+    rank = int(os.environ.get("RANK", 0))
+    if rank == 0:
+        # Create proper logging directory - use results/experiment_logs instead of checkpoints
+        log_dir = output_dir.parent / "results" / "experiment_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        logger = setup_logging(str(log_dir), "ablation_study")
+        tracker = ExperimentTracker("ablation_study", str(output_dir))
+        tracker.log_config(config)
+        tracker.start_timer()
+    else:
+        logger = None
+        tracker = None
 
     # Load validation dataset
     data_dir = args.data_dir or config["data"]["data_dir"]
@@ -110,7 +115,8 @@ def run_ablation_study(config, args):
         pin_memory=True,
     )
 
-    logger.info(f"Validation dataset: {len(val_dataset)} samples")
+    if logger:
+        logger.info(f"Validation dataset: {len(val_dataset)} samples")
 
     # Define ablation configurations
     ablation_configs = []
@@ -197,7 +203,8 @@ def run_ablation_study(config, args):
                 {"name": f"dim_{dim}", "config": cfg, "category": "feature_dims"}
             )
 
-    logger.info(f"Running {len(ablation_configs)} ablation experiments")
+    if logger:
+        logger.info(f"Running {len(ablation_configs)} ablation experiments")
 
     # Run experiments
     results = []
@@ -314,13 +321,16 @@ def run_ablation_study(config, args):
     with open(output_dir / "ablation_summary.txt", "w") as f:
         f.write(summary)
 
-    logger.info(f"Ablation study completed. Results saved to {output_dir}")
-    logger.info("\n" + summary)
+    if logger:
+        logger.info(f"Ablation study completed. Results saved to {output_dir}")
+        logger.info("\n" + summary)
 
     # Save to tracker
-    tracker.save_results()
-    duration = tracker.end_timer()
-    logger.info(f"Total time: {duration:.2f} seconds")
+    if tracker:
+        tracker.save_results()
+        duration = tracker.end_timer()
+        if logger:
+            logger.info(f"Total time: {duration:.2f} seconds")
 
     return results_df
 

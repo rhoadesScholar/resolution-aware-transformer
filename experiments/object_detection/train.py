@@ -1,5 +1,10 @@
 """Training script for object detection experiments."""
 
+import os
+
+# Set OMP_NUM_THREADS to 1 to avoid thread oversubscription in distributed training
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 import argparse
 from pathlib import Path
 import sys
@@ -14,7 +19,13 @@ import yaml
 sys.path.append(str(Path(__file__).parent.parent / "common"))
 from datasets import COCODataset
 from models import create_rat_detection_model
-from utils import AverageMeter, ExperimentTracker, get_device, set_seed, adjust_config_for_gpu_memory
+from utils import (
+    AverageMeter,
+    ExperimentTracker,
+    get_device,
+    set_seed,
+    adjust_config_for_gpu_memory,
+)
 
 
 def parse_args():
@@ -186,7 +197,7 @@ def main():
     # Load and optimize configuration
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
-    
+
     # Apply dynamic memory optimization
     config = adjust_config_for_gpu_memory(config)
 
@@ -202,10 +213,10 @@ def main():
 
     # Setup experiment tracking
     tracker = ExperimentTracker(
-        name=config["logging"]["experiment_name"],
+        experiment_name=config["logging"]["experiment_name"],
         save_dir=config["logging"]["save_dir"],
-        config=config,
     )
+    tracker.log_config(config)
 
     # Create datasets
     data_dir = args.data_dir or config["data"]["data_dir"]

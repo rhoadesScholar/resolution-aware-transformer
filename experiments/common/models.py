@@ -168,16 +168,40 @@ class RATSegmentationModel(nn.Module):
             raise ImportError("ResolutionAwareTransformer not available")
 
         # Filter out parameters that are not supported by ResolutionAwareTransformer
+        # and handle special parameter mappings
         filtered_kwargs = {}
         for key, value in kwargs.items():
             if key in ["multi_scale", "scales"]:
                 # These are handled at the data loader level, not model level
                 continue
-            # Map attention_type to sga_attention_type for the transformer
-            if key == "attention_type":
+            elif key == "attention_type":
+                # Map attention_type to sga_attention_type for the transformer
                 filtered_kwargs["sga_attention_type"] = value
+            elif key == "positional_encoding":
+                # Handle different positional encoding types
+                if value == "rose":
+                    filtered_kwargs["learnable_rose"] = True
+                elif value == "rope":
+                    # RoPE: Use standard rotary embeddings without spatial scaling
+                    filtered_kwargs["learnable_rose"] = False
+                    # Store this so we can handle it in forward pass
+                    self.use_rope_mode = True
+                elif value == "absolute":
+                    # Absolute: Disable rotary embeddings entirely
+                    filtered_kwargs["learnable_rose"] = False
+                    filtered_kwargs["rotary_ratio"] = 0.0
+                elif value == "none":
+                    # No positional encoding
+                    filtered_kwargs["learnable_rose"] = False
+                    filtered_kwargs["rotary_ratio"] = 0.0
+                else:
+                    # Default to RoSE
+                    filtered_kwargs["learnable_rose"] = True
             else:
                 filtered_kwargs[key] = value
+
+        # Set default for RoPE mode if not set
+        self.use_rope_mode = getattr(self, "use_rope_mode", False)
 
         self.backbone = ResolutionAwareTransformer(
             spatial_dims=spatial_dims,
@@ -206,8 +230,18 @@ class RATSegmentationModel(nn.Module):
         Returns:
             Segmentation logits
         """
+        # Handle RoPE mode by providing uniform spacing to eliminate spatial scaling
+        input_spacing = None
+        if hasattr(self, "use_rope_mode") and self.use_rope_mode:
+            if isinstance(x, list):
+                # For multi-scale inputs, provide unit spacing for each scale
+                input_spacing = [[1.0, 1.0] for _ in x]
+            else:
+                # For single input, provide unit spacing
+                input_spacing = [1.0, 1.0]
+
         # Get transformer features
-        outputs = self.backbone(x)
+        outputs = self.backbone(x, input_spacing=input_spacing)
 
         if isinstance(x, list):
             # Multi-scale input
@@ -256,16 +290,40 @@ class RATDetectionModel(nn.Module):
             raise ImportError("ResolutionAwareTransformer not available")
 
         # Filter out parameters that are not supported by ResolutionAwareTransformer
+        # and handle special parameter mappings
         filtered_kwargs = {}
         for key, value in kwargs.items():
             if key in ["multi_scale", "scales", "num_queries"]:
                 # These are handled at the model level or data loader level
                 continue
-            # Map attention_type to sga_attention_type for the transformer
-            if key == "attention_type":
+            elif key == "attention_type":
+                # Map attention_type to sga_attention_type for the transformer
                 filtered_kwargs["sga_attention_type"] = value
+            elif key == "positional_encoding":
+                # Handle different positional encoding types
+                if value == "rose":
+                    filtered_kwargs["learnable_rose"] = True
+                elif value == "rope":
+                    # RoPE: Use standard rotary embeddings without spatial scaling
+                    filtered_kwargs["learnable_rose"] = False
+                    # Store this so we can handle it in forward pass
+                    self.use_rope_mode = True
+                elif value == "absolute":
+                    # Absolute: Disable rotary embeddings entirely
+                    filtered_kwargs["learnable_rose"] = False
+                    filtered_kwargs["rotary_ratio"] = 0.0
+                elif value == "none":
+                    # No positional encoding
+                    filtered_kwargs["learnable_rose"] = False
+                    filtered_kwargs["rotary_ratio"] = 0.0
+                else:
+                    # Default to RoSE
+                    filtered_kwargs["learnable_rose"] = True
             else:
                 filtered_kwargs[key] = value
+
+        # Set default for RoPE mode if not set
+        self.use_rope_mode = getattr(self, "use_rope_mode", False)
 
         self.backbone = ResolutionAwareTransformer(
             spatial_dims=spatial_dims,
@@ -291,8 +349,18 @@ class RATDetectionModel(nn.Module):
         Returns:
             Detection outputs
         """
+        # Handle RoPE mode by providing uniform spacing to eliminate spatial scaling
+        input_spacing = None
+        if hasattr(self, "use_rope_mode") and self.use_rope_mode:
+            if isinstance(x, list):
+                # For multi-scale inputs, provide unit spacing for each scale
+                input_spacing = [[1.0, 1.0] for _ in x]
+            else:
+                # For single input, provide unit spacing
+                input_spacing = [1.0, 1.0]
+
         # Get transformer features
-        outputs = self.backbone(x)
+        outputs = self.backbone(x, input_spacing=input_spacing)
 
         if isinstance(x, list):
             # Multi-scale input - use features from largest scale
@@ -439,6 +507,7 @@ def create_rat_detection_model(**kwargs) -> nn.Module:
         "feature_dims",
         "num_blocks",
         "attention_type",
+        "positional_encoding",
         "num_heads",
         "learnable_rose",
         "mlp_ratio",

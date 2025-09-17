@@ -1,5 +1,10 @@
 """Ablation study script for Resolution Aware Transformer."""
 
+import os
+
+# Set OMP_NUM_THREADS to 1 to avoid thread oversubscription in distributed training
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 import argparse
 from pathlib import Path
 import sys
@@ -368,7 +373,7 @@ def main():
     # Load and optimize configuration
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
-    
+
     # Apply dynamic memory optimization
     config = adjust_config_for_gpu_memory(config)
 

@@ -1,5 +1,10 @@
 """Training script for medical segmentation experiment."""
 
+import os
+
+# Set OMP_NUM_THREADS to 1 to avoid thread oversubscription in distributed training
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 import argparse
 from pathlib import Path
 import sys
@@ -55,10 +60,10 @@ def load_config(config_path: str) -> dict:
     """Load and optimize experiment configuration."""
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    
+
     # Apply dynamic memory optimization
     config = adjust_config_for_gpu_memory(config)
-    
+
     return config
 
 

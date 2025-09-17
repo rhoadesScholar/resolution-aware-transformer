@@ -167,13 +167,25 @@ class RATSegmentationModel(nn.Module):
         if ResolutionAwareTransformer is None:
             raise ImportError("ResolutionAwareTransformer not available")
 
+        # Filter out parameters that are not supported by ResolutionAwareTransformer
+        filtered_kwargs = {}
+        for key, value in kwargs.items():
+            if key in ["multi_scale", "scales"]:
+                # These are handled at the data loader level, not model level
+                continue
+            # Map attention_type to sga_attention_type for the transformer
+            if key == "attention_type":
+                filtered_kwargs["sga_attention_type"] = value
+            else:
+                filtered_kwargs[key] = value
+
         self.backbone = ResolutionAwareTransformer(
             spatial_dims=spatial_dims,
             input_features=input_features,
             feature_dims=feature_dims,
             num_blocks=num_blocks,
             sga_attention_type=attention_type,
-            **kwargs,
+            **filtered_kwargs,
         )
 
         self.seg_head = SegmentationHead(feature_dims, num_classes)
@@ -243,13 +255,25 @@ class RATDetectionModel(nn.Module):
         if ResolutionAwareTransformer is None:
             raise ImportError("ResolutionAwareTransformer not available")
 
+        # Filter out parameters that are not supported by ResolutionAwareTransformer
+        filtered_kwargs = {}
+        for key, value in kwargs.items():
+            if key in ["multi_scale", "scales", "num_queries"]:
+                # These are handled at the model level or data loader level
+                continue
+            # Map attention_type to sga_attention_type for the transformer
+            if key == "attention_type":
+                filtered_kwargs["sga_attention_type"] = value
+            else:
+                filtered_kwargs[key] = value
+
         self.backbone = ResolutionAwareTransformer(
             spatial_dims=spatial_dims,
             input_features=input_features,
             feature_dims=feature_dims,
             num_blocks=num_blocks,
             sga_attention_type=attention_type,
-            **kwargs,
+            **filtered_kwargs,
         )
 
         self.detection_head = DetectionHead(feature_dims, num_classes, num_queries)
@@ -374,11 +398,16 @@ def create_model(model_name: str, task: str, num_classes: int, **kwargs) -> nn.M
     model_name = model_name.lower()
     task = task.lower()
 
+    # Filter out parameters that are not for the model itself
+    filtered_kwargs = kwargs.copy()
+    for param in ["multi_scale", "scales", "name"]:
+        filtered_kwargs.pop(param, None)
+
     if model_name == "rat":
         if task == "segmentation":
-            return RATSegmentationModel(num_classes=num_classes, **kwargs)
+            return RATSegmentationModel(num_classes=num_classes, **filtered_kwargs)
         elif task == "detection":
-            return RATDetectionModel(num_classes=num_classes, **kwargs)
+            return RATDetectionModel(num_classes=num_classes, **filtered_kwargs)
         else:
             raise ValueError(f"Unknown task for RAT: {task}")
 
@@ -390,6 +419,63 @@ def create_model(model_name: str, task: str, num_classes: int, **kwargs) -> nn.M
 
     else:
         raise ValueError(f"Unknown model: {model_name}")
+
+
+def create_rat_detection_model(**kwargs) -> nn.Module:
+    """
+    Create RAT model specifically for object detection.
+
+    Args:
+        **kwargs: Model configuration arguments
+
+    Returns:
+        RATDetectionModel instance
+    """
+    # Define parameters that should be passed to the RAT model
+    # vs those that are for the detection head or training
+    rat_params = [
+        "spatial_dims",
+        "input_features",
+        "feature_dims",
+        "num_blocks",
+        "attention_type",
+        "num_heads",
+        "learnable_rose",
+        "mlp_ratio",
+        "mlp_dropout",
+        "proj_kernel_size",
+        "proj_padding",
+        "sga_kernel_size",
+        "stride",
+        "iters",
+        "mlp_bias",
+        "mlp_activation",
+        "qkv_bias",
+        "base_theta",
+        "init_jitter_std",
+        "rotary_ratio",
+        "frequency_scaling",
+        "leading_tokens",
+        "spacing",
+    ]
+
+    # Filter parameters for the RAT model
+    filtered_kwargs = {}
+    for key, value in kwargs.items():
+        if key in rat_params:
+            filtered_kwargs[key] = value
+
+    # Extract detection-specific parameters
+    num_classes = kwargs.get("num_classes", 80)  # COCO default
+    num_queries = kwargs.get("num_queries", 100)
+
+    # Set defaults for detection model
+    filtered_kwargs.setdefault("feature_dims", 256)
+    filtered_kwargs.setdefault("num_blocks", 6)
+
+    return RATDetectionModel(
+        num_classes=num_classes, num_queries=num_queries, **filtered_kwargs
+    )
 
 
 def load_pretrained_model(

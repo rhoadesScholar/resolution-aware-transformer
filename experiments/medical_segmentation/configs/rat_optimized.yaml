@@ -61,6 +61,7 @@ eval:
 logging:
   experiment_name: "rat_optimized_deepspeed"
   save_dir: "./checkpoints"
+  log_dir: "./results/tensorboard_logs"  # Proper TensorBoard logging directory
   log_interval: 50
 
 # DeepSpeed Stage 2 optimization (not Stage 3)

@@ -1,0 +1,78 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+
+# Log files (except organized ones in results/)
+*.log
+!results/experiment_logs/*.log
+
+# Backup files
+*.orig
+*.backup
+*_backup*
+
+# Test artifacts
+test_*
+!test_*.py
+
+# Empty data directories (keep structure)
+data/*
+!data/.gitkeep
+checkpoints/*
+!checkpoints/.gitkeep
+logs/*
+!logs/.gitkeep
+
+# LSF output files
+*.out
+*.err
+core.*
+
+# Model checkpoints (usually large)
+*.pth
+*.pt
+*.ckpt
+
+# Temporary experiment outputs
+*.csv
+*.png
+*.jpg
+*.pdf
+!results/**/*.csv
+!results/**/*.png
+!results/**/*.jpg
+!results/**/*.pdf

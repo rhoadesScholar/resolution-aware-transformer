@@ -466,7 +466,10 @@ def main():
     logger = None
     tracker = None
     if rank == 0:
-        logger = setup_logging(str(output_dir), "medical_segmentation_train")
+        # Create proper logging directory - use results/experiment_logs instead of checkpoints
+        log_dir = output_dir.parent / "results" / "experiment_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        logger = setup_logging(str(log_dir), "medical_segmentation_train")
         tracker = ExperimentTracker("medical_segmentation", str(output_dir))
         tracker.log_config(config)
         if ds_config:

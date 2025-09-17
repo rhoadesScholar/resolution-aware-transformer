@@ -20,11 +20,11 @@ def get_training_command_for_experiment(exp_type):
     training_commands = {
         "medical_segmentation": {
             "script": "medical_segmentation/train.py",
-            "config": "medical_segmentation/configs/rat_multiscale.yaml",
+            "config": "medical_segmentation/configs/rat_optimized.yaml",  # Updated to optimized config
         },
         "object_detection": {
-            "script": "object_detection/train.py", 
-            "config": "object_detection/configs/multi_scale.yaml",
+            "script": "object_detection/train.py",
+            "config": "object_detection/configs/rat_optimized_detection.yaml",  # Updated to optimized config
         },
         "ablation_studies": {
             "script": "ablations/ablation_study.py",
@@ -33,13 +33,13 @@ def get_training_command_for_experiment(exp_type):
         "robustness_tests": {
             "script": "robustness/resolution_transfer.py",
             "config": None,  # No config file needed
-        }
+        },
     }
-    
+
     exp_name = exp_type["name"]
     if exp_name not in training_commands:
         raise ValueError(f"Unknown experiment type: {exp_name}")
-    
+
     return training_commands[exp_name]
 
 
@@ -133,7 +133,7 @@ def generate_parallel_job_scripts(config, output_dir="cluster"):
 
 def generate_data_setup_for_experiment(exp_type):
     """Generate experiment-specific data setup code."""
-    
+
     if exp_type["name"] == "medical_segmentation":
         return [
             "# Data setup - Medical segmentation only needs ISIC dataset",
@@ -142,7 +142,7 @@ def generate_data_setup_for_experiment(exp_type):
             "# Add small random delay to reduce I/O contention if multiple jobs start simultaneously",
             "sleep $((RANDOM % 30 + 10))  # Random delay between 10-40 seconds",
             "",
-            'DATASET_CONFIG=$(python3 config_manager.py --dump)',
+            "DATASET_CONFIG=$(python3 config_manager.py --dump)",
             'USE_SAMPLE_DATA=$(echo "$DATASET_CONFIG" | grep "use_sample_data" | cut -d\'=\' -f2 | xargs)',
             'ISIC_SOURCE=$(echo "$DATASET_CONFIG" | grep "isic_source_dir" | cut -d\'=\' -f2 | xargs)',
             'ISIC_SAMPLE_SIZE=$(echo "$DATASET_CONFIG" | grep "isic_sample_size" | cut -d\'=\' -f2 | xargs)',
@@ -179,7 +179,7 @@ def generate_data_setup_for_experiment(exp_type):
             "fi",
             'echo "Using data directory: $ACTUAL_DATA_DIR"',
         ]
-    
+
     elif exp_type["name"] == "object_detection":
         return [
             "# Data setup - Object detection only needs COCO dataset",
@@ -188,7 +188,7 @@ def generate_data_setup_for_experiment(exp_type):
             "# Add small random delay to reduce I/O contention if multiple jobs start simultaneously",
             "sleep $((RANDOM % 30 + 10))  # Random delay between 10-40 seconds",
             "",
-            'DATASET_CONFIG=$(python3 config_manager.py --dump)',
+            "DATASET_CONFIG=$(python3 config_manager.py --dump)",
             'USE_SAMPLE_DATA=$(echo "$DATASET_CONFIG" | grep "use_sample_data" | cut -d\'=\' -f2 | xargs)',
             'COCO_SOURCE=$(echo "$DATASET_CONFIG" | grep "coco_source_dir" | cut -d\'=\' -f2 | xargs)',
             'COCO_SAMPLE_SIZE=$(echo "$DATASET_CONFIG" | grep "coco_sample_size" | cut -d\'=\' -f2 | xargs)',
@@ -215,7 +215,7 @@ def generate_data_setup_for_experiment(exp_type):
             "",
             'echo "COCO dataset setup completed."',
         ]
-    
+
     elif exp_type["name"] == "ablation_studies":
         return [
             "# Data setup - Ablation studies use ISIC dataset (medical segmentation focus)",
@@ -224,7 +224,7 @@ def generate_data_setup_for_experiment(exp_type):
             "# Add small random delay to reduce I/O contention if multiple jobs start simultaneously",
             "sleep $((RANDOM % 30 + 10))  # Random delay between 10-40 seconds",
             "",
-            'DATASET_CONFIG=$(python3 config_manager.py --dump)',
+            "DATASET_CONFIG=$(python3 config_manager.py --dump)",
             'USE_SAMPLE_DATA=$(echo "$DATASET_CONFIG" | grep "use_sample_data" | cut -d\'=\' -f2 | xargs)',
             'ISIC_SOURCE=$(echo "$DATASET_CONFIG" | grep "isic_source_dir" | cut -d\'=\' -f2 | xargs)',
             'ISIC_SAMPLE_SIZE=$(echo "$DATASET_CONFIG" | grep "isic_sample_size" | cut -d\'=\' -f2 | xargs)',
@@ -261,7 +261,7 @@ def generate_data_setup_for_experiment(exp_type):
             "fi",
             'echo "Using data directory: $ACTUAL_DATA_DIR"',
         ]
-    
+
     else:
         # Default setup for other experiment types
         return [
@@ -345,11 +345,13 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
 
     micromamba_env = config.get("environment", "micromamba_env")
     if micromamba_env:
-        script_lines.extend([
-            "# Initialize micromamba for this shell",
-            'eval "$(micromamba shell hook --shell bash)"',
-            f"micromamba activate {micromamba_env}"
-        ])
+        script_lines.extend(
+            [
+                "# Initialize micromamba for this shell",
+                'eval "$(micromamba shell hook --shell bash)"',
+                f"micromamba activate {micromamba_env}",
+            ]
+        )
 
     # Add module loading if specified
     modules = config.get("environment", "modules_to_load")
@@ -364,8 +366,8 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
             "",
             "# Debug environment",
             'echo "Environment debugging info:"',
-            'echo "Python path: $(which python3 2>/dev/null || echo \'python3 not found\')"',
-            'echo "Current directory: $(pwd)"', 
+            "echo \"Python path: $(which python3 2>/dev/null || echo 'python3 not found')\"",
+            'echo "Current directory: $(pwd)"',
             'echo "PATH: $PATH"',
             'echo "User: $(whoami)"',
             "",
@@ -408,7 +410,7 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
 
     # Add experiment-specific training command
     training_cmd = get_training_command_for_experiment(exp_type)
-    
+
     if exp_type["name"] == "robustness_tests":
         script_lines.extend(
             [
@@ -418,6 +420,16 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
             ]
         )
     else:
+        # Add DeepSpeed flags only if enabled in config for medical segmentation and object detection
+        deepspeed_flags = []
+        if exp_type["name"] in ["medical_segmentation", "object_detection"]:
+            if config.get("training", "use_deepspeed", False):
+                deepspeed_flags = [
+                    "    --deepspeed \\",  # Enable DeepSpeed Stage 2
+                    "    --zero_stage 2 \\",  # Use DeepSpeed Stage 2 for memory optimization
+                    "    --distributed \\",  # Enable distributed training
+                ]
+
         script_lines.extend(
             [
                 "torchrun \\",
@@ -427,6 +439,9 @@ def generate_single_experiment_script(config, exp_type, dependency_job_name=None
                 "    --master_port=$MASTER_PORT \\",
                 f"    {training_cmd['script']} \\",
                 f"    --config {training_cmd['config']} \\",
+            ]
+            + deepspeed_flags
+            + [
                 '    --output_dir "$NETWORK_CHECKPOINTS_DIR" \\',
                 '    --data_dir "${ACTUAL_DATA_DIR:-$LOCAL_DATA_DIR}"',
             ]
@@ -586,11 +601,13 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
 
     micromamba_env = config.get("environment", "micromamba_env")
     if micromamba_env:
-        script_lines.extend([
-            "# Initialize micromamba for this shell",
-            'eval "$(micromamba shell hook --shell bash)"',
-            f"micromamba activate {micromamba_env}"
-        ])
+        script_lines.extend(
+            [
+                "# Initialize micromamba for this shell",
+                'eval "$(micromamba shell hook --shell bash)"',
+                f"micromamba activate {micromamba_env}",
+            ]
+        )
 
     # Add module loading if specified
     modules = config.get("environment", "modules_to_load")
@@ -605,7 +622,7 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
             "",
             "# Debug environment",
             'echo "Environment debugging info:"',
-            'echo "Python path: $(which python3 2>/dev/null || echo \'python3 not found\')"',
+            "echo \"Python path: $(which python3 2>/dev/null || echo 'python3 not found')\"",
             'echo "Current directory: $(pwd)"',
             'echo "PATH: $PATH"',
             'echo "User: $(whoami)"',
@@ -733,7 +750,10 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
                 "    --master_addr=$MASTER_ADDR \\",
                 f"    --master_port={current_port} \\",
                 "    medical_segmentation/train.py \\",
-                "    --config medical_segmentation/configs/rat_multiscale.yaml \\",
+                "    --config medical_segmentation/configs/rat_optimized.yaml \\",  # Updated to optimized config
+                "    --deepspeed \\",  # Enable DeepSpeed Stage 2
+                "    --zero_stage 2 \\",  # Use DeepSpeed Stage 2 for memory optimization
+                "    --distributed \\",  # Enable distributed training
                 '    --output_dir "$NETWORK_CHECKPOINTS_DIR" \\',
                 '    --data_dir "$LOCAL_DATA_DIR"',
                 "",
@@ -753,7 +773,10 @@ def generate_lsf_script(config, quick_test=False, output_file=None):
                 "        --master_addr=$MASTER_ADDR \\",
                 f"        --master_port={current_port} \\",
                 "        object_detection/train.py \\",
-                "        --config object_detection/configs/multi_scale.yaml \\",
+                "        --config object_detection/configs/rat_optimized_detection.yaml \\",  # Updated to optimized config
+                "        --deepspeed \\",  # Enable DeepSpeed Stage 2
+                "        --zero_stage 2 \\",  # Use DeepSpeed Stage 2 for memory optimization
+                "        --distributed \\",  # Enable distributed training
                 '        --output_dir "$NETWORK_CHECKPOINTS_DIR" \\',
                 '        --data_dir "$LOCAL_DATA_DIR"',
                 "fi",

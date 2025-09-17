@@ -9,7 +9,7 @@ cluster:
   find_unused_parameters: true
   num_gpus: 8
 data:
-  data_dir: /tmp/rat_data/rat_data_146600573
+  data_dir: /tmp/rat_data/rat_data_146605510
   image_size: 128
   num_workers: 16
   persistent_workers: true
@@ -37,8 +37,8 @@ model:
   spatial_dims: 2
 seed: 42
 training:
-  batch_size: 4
-  effective_batch_size: 32
+  batch_size: 1
+  effective_batch_size: 4
   epochs: 100
   eval_freq: 2
   grad_clip: 1.0

@@ -85,7 +85,10 @@ def run_ablation_study(config, args):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Setup logging
-    logger = setup_logging(str(output_dir), "ablation_study")
+    # Create proper logging directory - use results/experiment_logs instead of checkpoints
+    log_dir = output_dir.parent / "results" / "experiment_logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    logger = setup_logging(str(log_dir), "ablation_study")
     tracker = ExperimentTracker("ablation_study", str(output_dir))
     tracker.log_config(config)
     tracker.start_timer()

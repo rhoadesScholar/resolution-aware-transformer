@@ -47,6 +47,13 @@ check_lsf() {
 check_directories() {
     # Use config to get and create directories
     python3 config_manager.py --create-dirs
+    
+    # Organize any misplaced log files
+    if [ -f "organize_logs.sh" ]; then
+        echo "Organizing log files..."
+        ./organize_logs.sh > /dev/null 2>&1
+    fi
+    
     print_success "Directories created/verified from configuration"
 }
 

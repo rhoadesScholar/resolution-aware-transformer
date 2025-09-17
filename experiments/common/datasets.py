@@ -246,7 +246,7 @@ class COCODataset(Dataset):
         # This is a simplified implementation
         # In practice, use pycocotools for proper COCO loading
 
-        ann_file = self.data_dir / f"annotations/instances_{self.split}2017.json"
+        ann_file = self.data_dir / f"annotations/instances_{self.split}.json"
         if not ann_file.exists():
             raise ValueError(f"Annotation file not found: {ann_file}")
 

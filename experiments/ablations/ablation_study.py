@@ -116,7 +116,11 @@ def run_ablation_study(config, args):
     )
 
     if logger:
-        logger.info(f"Validation dataset: {len(val_dataset)} samples")
+        if logger:
+
+            if logger:
+
+                logger.info(f"Validation dataset: {len(val_dataset)} samples")
 
     # Define ablation configurations
     ablation_configs = []
@@ -210,7 +214,8 @@ def run_ablation_study(config, args):
     results = []
 
     for exp_config in tqdm(ablation_configs, desc="Ablation experiments"):
-        logger.info(f"Running experiment: {exp_config['name']}")
+        if logger:
+            logger.info(f"Running experiment: {exp_config['name']}")
 
         try:
             # Create model
@@ -259,9 +264,11 @@ def run_ablation_study(config, args):
                         str(model_path), model_name, "segmentation", 1, **model_config
                     )
                     model = model.to(device)
-                    logger.info(f"Loaded pretrained model from {model_path}")
+                    if logger:
+                        logger.info(f"Loaded pretrained model from {model_path}")
                 else:
-                    logger.warning(f"Pretrained model not found: {model_path}")
+                    if logger:
+                        logger.warning(f"Pretrained model not found: {model_path}")
                     # Skip this experiment if no pretrained model
                     continue
 
@@ -293,22 +300,25 @@ def run_ablation_study(config, args):
 
             results.append(result)
 
-            logger.info(
-                f"Results for {exp_config['name']}: "
-                f"Dice={metrics['dice']:.4f}, IoU={metrics['iou']:.4f}"
-            )
+            if logger:
+                logger.info(
+                    f"Results for {exp_config['name']}: "
+                    f"Dice={metrics['dice']:.4f}, IoU={metrics['iou']:.4f}"
+                )
 
             # Log to tracker
-            for key, value in result.items():
-                if isinstance(value, (int, float)):
-                    tracker.log_metric(f"{exp_config['name']}_{key}", value)
+            if tracker:
+                for key, value in result.items():
+                    if isinstance(value, (int, float)):
+                        tracker.log_metric(f"{exp_config['name']}_{key}", value)
 
             # Clean up GPU memory
             del model
             torch.cuda.empty_cache()
 
         except Exception as e:
-            logger.error(f"Error in experiment {exp_config['name']}: {str(e)}")
+            if logger:
+                logger.error(f"Error in experiment {exp_config['name']}: {str(e)}")
             continue
 
     # Save results

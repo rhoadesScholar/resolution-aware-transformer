@@ -65,10 +65,12 @@ def check_dependencies():
     required_packages = [
         "torch",
         "spatial-grouping-attention",
-        "rotary-spatial-embeddings",
+        # "rotary-spatial-embeddings",
+        "RoSE",
         "torchvision",
         "tqdm",
-        "pyyaml",
+        # "pyyaml",
+        "PyYAML",
     ]
 
     missing_packages = []

@@ -412,6 +412,7 @@ def main():
         tracker.log_config(config)
     else:
         tracker = None
+        logger = None
 
     # Create datasets
     data_dir = args.data_dir or config["data"]["data_dir"]

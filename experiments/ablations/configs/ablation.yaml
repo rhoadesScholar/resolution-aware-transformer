@@ -27,6 +27,20 @@ model:
     mlp_dropout: 0.1
     multi_scale: false
 
+# Training configuration
+training:
+  num_epochs: 10  # Short for ablation studies
+  batch_size: 48  # Optimized for H200
+  optimizer:
+    name: "adamw"
+    lr: 1e-4
+    weight_decay: 0.01
+  scheduler:
+    name: "cosine"
+    min_lr: 1e-6
+  mixed_precision: true
+  gradient_clip: 1.0
+
 # Evaluation configuration
 evaluation:
   batch_size: 48  # Optimized for H200 - was 16

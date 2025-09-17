@@ -5,6 +5,10 @@ import os
 # Set OMP_NUM_THREADS to 1 to avoid thread oversubscription in distributed training
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 
+# CUDA memory and debugging environment variables
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
+
 import argparse
 from pathlib import Path
 import sys
@@ -12,9 +16,21 @@ import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 import yaml
+
+# DeepSpeed for memory optimization and large model training
+try:
+    import deepspeed
+
+    DEEPSPEED_AVAILABLE = True
+except ImportError:
+    DEEPSPEED_AVAILABLE = False
+    print("Warning: DeepSpeed not available. Install with: pip install deepspeed")
 
 # TensorBoard for logging
 try:
@@ -40,6 +56,114 @@ from utils import (
 )
 
 
+def setup_distributed():
+    """Initialize distributed training."""
+    if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+        rank = int(os.environ["RANK"])
+        world_size = int(os.environ["WORLD_SIZE"])
+        local_rank = int(os.environ["LOCAL_RANK"])
+
+        dist.init_process_group(backend="nccl")
+        torch.cuda.set_device(local_rank)
+
+        return rank, world_size, local_rank
+    else:
+        return 0, 1, 0
+
+
+def get_device_for_distributed(local_rank=None):
+    """Get appropriate device for distributed training."""
+    if local_rank is not None:
+        return torch.device(f"cuda:{local_rank}")
+    elif torch.cuda.is_available():
+        return torch.device("cuda")
+    else:
+        return torch.device("cpu")
+
+
+def create_deepspeed_config(args, config):
+    """Create DeepSpeed configuration dictionary."""
+    if not DEEPSPEED_AVAILABLE or not args.deepspeed:
+        return None
+
+    # Use provided config file or create default
+    if args.deepspeed_config:
+        import json
+
+        with open(args.deepspeed_config, "r") as f:
+            ds_config = json.load(f)
+        return ds_config
+
+    # Create default DeepSpeed config for medical segmentation
+    ds_config = {
+        "train_batch_size": config["training"]["batch_size"] * 8,  # Assumes 8 GPUs
+        "train_micro_batch_size_per_gpu": config["training"]["batch_size"],
+        "gradient_accumulation_steps": 1,
+        "optimizer": {
+            "type": "AdamW",
+            "params": {
+                "lr": config["training"]["learning_rate"],
+                "weight_decay": config["training"].get("weight_decay", 1e-4),
+                "betas": [0.9, 0.999],
+                "eps": 1e-8,
+            },
+        },
+        "scheduler": (
+            {
+                "type": "WarmupCosineLR",
+                "params": {
+                    "total_num_steps": config["training"]["epochs"] * 100,  # Estimate
+                    "warmup_num_steps": 100,
+                },
+            }
+            if config["training"].get("scheduler") == "cosine"
+            else None
+        ),
+        "fp16": {
+            "enabled": True,
+            "loss_scale": 0,
+            "loss_scale_window": 1000,
+            "initial_scale_power": 16,
+            "hysteresis": 2,
+            "min_loss_scale": 1,
+        },
+        "gradient_clipping": config.get("grad_clip", 1.0),
+        "zero_optimization": (
+            {
+                "stage": args.zero_stage,
+                "allgather_partitions": True,
+                "allgather_bucket_size": 2e8,
+                "overlap_comm": True,
+                "reduce_scatter": True,
+                "reduce_bucket_size": 2e8,
+                "contiguous_gradients": True,
+                "cpu_offload": args.zero_stage == 3,  # Enable CPU offload for stage 3
+            }
+            if args.zero_stage > 0
+            else None
+        ),
+        "activation_checkpointing": {
+            "partition_activations": True,
+            "cpu_checkpointing": True,
+            "contiguous_memory_optimization": False,
+            "number_checkpoints": 4,
+            "synchronize_checkpoint_boundary": False,
+            "profile": False,
+        },
+        "wall_clock_breakdown": False,
+        "dump_state": False,
+    }
+
+    # Remove None values
+    ds_config = {k: v for k, v in ds_config.items() if v is not None}
+    if ds_config.get("zero_optimization") is not None:
+        ds_config["zero_optimization"] = {
+            k: v for k, v in ds_config["zero_optimization"].items() if v is not None
+        }
+
+    return ds_config
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Train segmentation model on ISIC 2018"
@@ -53,7 +177,29 @@ def parse_args():
     parser.add_argument(
         "--debug", action="store_true", help="Debug mode (smaller dataset)"
     )
-    return parser.parse_args()
+    # DeepSpeed arguments
+    parser.add_argument(
+        "--deepspeed", action="store_true", help="Enable DeepSpeed optimization"
+    )
+    parser.add_argument(
+        "--deepspeed_config", type=str, help="Path to DeepSpeed config file"
+    )
+    parser.add_argument(
+        "--zero_stage",
+        type=int,
+        default=2,
+        choices=[0, 1, 2, 3],
+        help="DeepSpeed ZeRO stage (0=disabled, 1=optimizer, 2=optimizer+gradients, 3=all)",
+    )
+
+    # Parse args, but let DeepSpeed handle distributed args if present
+    if DEEPSPEED_AVAILABLE:
+        args = deepspeed.add_config_arguments(parser)
+        args = parser.parse_args()
+    else:
+        args = parser.parse_args()
+
+    return args
 
 
 def load_config(config_path: str) -> dict:
@@ -126,9 +272,15 @@ def train_epoch(
     device: torch.device,
     epoch: int,
     config: dict,
+    args=None,
 ) -> dict:
     """Train for one epoch."""
     model.train()
+
+    # Clear GPU memory before training
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
     epoch_loss = 0.0
     evaluator = SegmentationEvaluator()
@@ -172,14 +324,20 @@ def train_epoch(
                 evaluator.update(pred, masks)
 
         # Backward pass
-        optimizer.zero_grad()
-        total_loss.backward()
+        if DEEPSPEED_AVAILABLE and args and args.deepspeed:
+            # DeepSpeed handles backward pass and optimization
+            model.backward(total_loss)
+            model.step()
+        else:
+            # Traditional training
+            optimizer.zero_grad()
+            total_loss.backward()
 
-        # Gradient clipping
-        if config.get("grad_clip", 0) > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), config["grad_clip"])
+            # Gradient clipping
+            if config.get("grad_clip", 0) > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), config["grad_clip"])
 
-        optimizer.step()
+            optimizer.step()
 
         epoch_loss += total_loss.item()
 
@@ -275,26 +433,60 @@ def validate_epoch(
 def main():
     args = parse_args()
 
+    # Setup distributed training (DeepSpeed handles this if enabled)
+    if DEEPSPEED_AVAILABLE and args.deepspeed:
+        # DeepSpeed will handle distributed initialization
+        deepspeed.init_distributed()
+        rank = dist.get_rank() if dist.is_initialized() else 0
+        world_size = dist.get_world_size() if dist.is_initialized() else 1
+        local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    else:
+        rank, world_size, local_rank = setup_distributed()
+
     # Load configuration
     config = load_config(args.config)
 
+    # Create DeepSpeed config if enabled
+    ds_config = create_deepspeed_config(args, config)
+
     # Set up experiment
     set_seed(config.get("seed", 42))
-    device = get_device()
+    device = get_device_for_distributed(local_rank)
 
-    # Create output directory
+    # Create output directory (only on rank 0)
     output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if rank == 0:
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Setup logging
-    logger = setup_logging(str(output_dir), "medical_segmentation_train")
-    tracker = ExperimentTracker("medical_segmentation", str(output_dir))
-    tracker.log_config(config)
-    tracker.start_timer()
+    # Wait for rank 0 to create directory
+    if world_size > 1:
+        dist.barrier()
 
-    # Initialize tensorboard if configured
+    # Setup logging (only on rank 0)
+    logger = None
+    tracker = None
+    if rank == 0:
+        logger = setup_logging(str(output_dir), "medical_segmentation_train")
+        tracker = ExperimentTracker("medical_segmentation", str(output_dir))
+        tracker.log_config(config)
+        if ds_config:
+            tracker.log_config({"deepspeed_config": ds_config})
+        tracker.start_timer()
+    else:
+        # Create a dummy logger for non-rank 0 processes
+        import logging
+
+        logger = logging.getLogger("medical_segmentation_train")
+        logger.setLevel(logging.INFO)
+        handler = logging.StreamHandler()
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        )
+        logger.addHandler(handler)
+
+    # Initialize tensorboard if configured (only on rank 0)
     writer = None
-    if config.get("logging", {}).get("backend") == "tensorboard":
+    if rank == 0 and config.get("logging", {}).get("backend") == "tensorboard":
         if SummaryWriter is not None:
             log_dir = Path(config["logging"]["log_dir"]) / "medical_segmentation"
             log_dir.mkdir(parents=True, exist_ok=True)
@@ -305,6 +497,11 @@ def main():
 
     logger.info("Starting medical segmentation experiment")
     logger.info(f"Device: {device}")
+    logger.info(
+        f"DeepSpeed enabled: {args.deepspeed if DEEPSPEED_AVAILABLE else False}"
+    )
+    if ds_config:
+        logger.info(f"DeepSpeed ZeRO stage: {args.zero_stage}")
     logger.info(f"Config: {config}")
 
     # Create datasets
@@ -326,11 +523,22 @@ def main():
         scales=config["model"].get("scales", [256, 128, 64]),
     )
 
-    # Create dataloaders
+    # Create dataloaders with distributed support
+    train_sampler = None
+    val_sampler = None
+    if world_size > 1:
+        train_sampler = DistributedSampler(
+            train_dataset, rank=rank, num_replicas=world_size
+        )
+        val_sampler = DistributedSampler(
+            val_dataset, rank=rank, num_replicas=world_size, shuffle=False
+        )
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=config["training"]["batch_size"],
-        shuffle=True,
+        shuffle=(train_sampler is None),  # Don't shuffle if using DistributedSampler
+        sampler=train_sampler,
         num_workers=config["data"].get("num_workers", 4),
         pin_memory=True,
     )
@@ -339,6 +547,7 @@ def main():
         val_dataset,
         batch_size=config["training"]["batch_size"] * 2,
         shuffle=False,
+        sampler=val_sampler,
         num_workers=config["data"].get("num_workers", 4),
         pin_memory=True,
     )
@@ -358,23 +567,74 @@ def main():
         model_name=model_name, task="segmentation", num_classes=1, **model_config
     )
 
-    model = model.to(device)
     logger.info(f"Model: {model}")
     logger.info(f"Parameters: {count_parameters(model):,}")
 
-    # Create optimizer and scheduler
-    optimizer = optim.AdamW(
-        model.parameters(),
-        lr=config["training"]["learning_rate"],
-        weight_decay=config["training"].get("weight_decay", 1e-4),
-    )
-
-    if config["training"].get("scheduler", "cosine") == "cosine":
-        scheduler = optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=config["training"]["epochs"]
+    # Initialize DeepSpeed or traditional training
+    if DEEPSPEED_AVAILABLE and args.deepspeed:
+        # DeepSpeed initialization
+        model_engine, optimizer, _, _ = deepspeed.initialize(
+            args=args, model=model, config=ds_config
         )
-    else:
+
+        # DeepSpeed handles device placement
+        model = model_engine
+        device = model_engine.device
+        logger.info(f"DeepSpeed engine initialized on device: {device}")
+        logger.info(f"DeepSpeed ZeRO stage: {args.zero_stage}")
+
+        # DeepSpeed handles scheduler internally if configured
         scheduler = None
+
+    else:
+        # Traditional training setup
+        # Clear CUDA cache before moving model to device
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+
+        # Handle CUDA device assignment with retries
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                model = model.to(device)
+                logger.info(f"Successfully moved model to device: {device}")
+                break
+            except RuntimeError as e:
+                if "CUDA" in str(e) and attempt < max_retries - 1:
+                    logger.warning(
+                        f"CUDA error on attempt {attempt + 1}/{max_retries}: {e}"
+                    )
+                    logger.info("Clearing CUDA cache and retrying...")
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    import time
+
+                    time.sleep(2)  # Brief delay before retry
+                else:
+                    logger.error(
+                        f"Failed to move model to device after {max_retries} attempts: {e}"
+                    )
+                    raise
+
+        # Wrap model with DDP for distributed training
+        if world_size > 1:
+            model = DDP(model, device_ids=[local_rank], output_device=local_rank)
+            logger.info("Model wrapped with DistributedDataParallel")
+
+        # Create optimizer and scheduler for traditional training
+        optimizer = optim.AdamW(
+            model.parameters(),
+            lr=config["training"]["learning_rate"],
+            weight_decay=config["training"].get("weight_decay", 1e-4),
+        )
+
+        if config["training"].get("scheduler", "cosine") == "cosine":
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=config["training"]["epochs"]
+            )
+        else:
+            scheduler = None
 
     # Create loss function
     criterion = create_criterion(config["training"])
@@ -393,35 +653,43 @@ def main():
 
     # Training loop
     for epoch in range(start_epoch, config["training"]["epochs"]):
-        logger.info(f"Epoch {epoch + 1}/{config['training']['epochs']}")
+        if rank == 0:
+            logger.info(f"Epoch {epoch + 1}/{config['training']['epochs']}")
+
+        # Set epoch for distributed sampler
+        if world_size > 1 and train_sampler is not None:
+            train_sampler.set_epoch(epoch)
 
         # Train
         train_metrics = train_epoch(
-            model, train_loader, criterion, optimizer, device, epoch + 1, config
+            model, train_loader, criterion, optimizer, device, epoch + 1, config, args
         )
-        logger.info(
-            f"Train - Loss: {train_metrics['loss']:.4f}, "
-            f"Dice: {train_metrics['dice']:.4f}"
-        )
+        if rank == 0:
+            logger.info(
+                f"Train - Loss: {train_metrics['loss']:.4f}, "
+                f"Dice: {train_metrics['dice']:.4f}"
+            )
 
         # Validate
         val_metrics = validate_epoch(
             model, val_loader, criterion, device, epoch + 1, config
         )
-        logger.info(
-            f"Val - Loss: {val_metrics['loss']:.4f}, Dice: {val_metrics['dice']:.4f}"
-        )
+        if rank == 0:
+            logger.info(
+                f"Val - Loss: {val_metrics['loss']:.4f}, Dice: {val_metrics['dice']:.4f}"
+            )
 
         # Update scheduler
         if scheduler:
             scheduler.step()
 
-        # Log metrics
-        for key, value in train_metrics.items():
-            tracker.log_metric(f"train_{key}", value, epoch)
+        # Log metrics (only on rank 0)
+        if rank == 0 and tracker is not None:
+            for key, value in train_metrics.items():
+                tracker.log_metric(f"train_{key}", value, epoch)
 
-        for key, value in val_metrics.items():
-            tracker.log_metric(f"val_{key}", value, epoch)
+            for key, value in val_metrics.items():
+                tracker.log_metric(f"val_{key}", value, epoch)
 
         # TensorBoard logging
         if writer is not None:
@@ -452,17 +720,21 @@ def main():
                 {"train_metrics": train_metrics, "val_metrics": val_metrics},
             )
 
-    # Save final results
-    tracker.log_metric("final_best_dice", best_dice)
-    duration = tracker.end_timer()
-    logger.info(f"Training completed in {duration:.2f} seconds")
-    logger.info(f"Best validation Dice: {best_dice:.4f}")
-
-    tracker.save_results()
+    # Save final results (only on rank 0)
+    if rank == 0 and tracker is not None:
+        tracker.log_metric("final_best_dice", best_dice)
+        duration = tracker.end_timer()
+        logger.info(f"Training completed in {duration:.2f} seconds")
+        logger.info(f"Best validation Dice: {best_dice:.4f}")
+        tracker.save_results()
 
     # Close TensorBoard writer
     if writer is not None:
         writer.close()
+
+    # Cleanup distributed training
+    if world_size > 1:
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

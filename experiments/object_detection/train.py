@@ -11,9 +11,21 @@ import sys
 
 import torch
 import torch.nn as nn
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 import yaml
+
+# DeepSpeed for memory optimization and large model training
+try:
+    import deepspeed
+
+    DEEPSPEED_AVAILABLE = True
+except ImportError:
+    DEEPSPEED_AVAILABLE = False
+    print("Warning: DeepSpeed not available. Install with: pip install deepspeed")
 
 # Add common utilities to path
 sys.path.append(str(Path(__file__).parent.parent / "common"))
@@ -39,7 +51,138 @@ def parse_args():
     parser.add_argument(
         "--debug", action="store_true", help="Debug mode with small dataset"
     )
+
+    # Distributed training arguments
+    parser.add_argument(
+        "--local_rank", type=int, default=-1, help="Local rank for distributed training"
+    )
+    parser.add_argument(
+        "--world_size",
+        type=int,
+        default=-1,
+        help="Number of processes for distributed training",
+    )
+    parser.add_argument(
+        "--distributed", action="store_true", help="Enable distributed training"
+    )
+
+    # DeepSpeed arguments for memory optimization and large model training
+    parser.add_argument(
+        "--deepspeed",
+        action="store_true",
+        help="Enable DeepSpeed for memory optimization and large model training",
+    )
+    parser.add_argument(
+        "--zero_stage",
+        type=int,
+        default=2,
+        choices=[1, 2, 3],
+        help="DeepSpeed ZeRO optimization stage (1, 2, or 3)",
+    )
+
     return parser.parse_args()
+
+
+def create_deepspeed_config(zero_stage=2, train_micro_batch_size=1):
+    """Create DeepSpeed configuration for memory optimization."""
+    if zero_stage == 3:
+        # Stage 3: Partition parameters, gradients, and optimizer states
+        # Includes CPU offloading for maximum memory efficiency
+        return {
+            "train_micro_batch_size_per_gpu": train_micro_batch_size,
+            "gradient_accumulation_steps": 1,
+            "optimizer": {
+                "type": "AdamW",
+                "params": {"lr": 1e-4, "weight_decay": 0.01, "betas": [0.9, 0.999]},
+            },
+            "scheduler": {
+                "type": "WarmupDecayLR",
+                "params": {
+                    "warmup_min_lr": 0,
+                    "warmup_max_lr": 1e-4,
+                    "warmup_num_steps": 1000,
+                    "total_num_steps": 50000,
+                },
+            },
+            "fp16": {
+                "enabled": True,
+                "auto_cast": False,
+                "loss_scale": 0,
+                "initial_scale_power": 16,
+                "loss_scale_window": 1000,
+                "hysteresis": 2,
+                "min_loss_scale": 1,
+            },
+            "zero_optimization": {
+                "stage": 3,
+                "cpu_offload": True,
+                "contiguous_gradients": True,
+                "overlap_comm": True,
+                "reduce_scatter": True,
+                "reduce_bucket_size": 5e8,
+                "allgather_bucket_size": 5e8,
+                "stage3_prefetch_bucket_size": 5e8,
+                "stage3_param_persistence_threshold": 1e6,
+                "stage3_max_live_parameters": 1e9,
+                "stage3_max_reuse_distance": 1e9,
+                "gather_16bit_weights_on_model_save": True,
+            },
+            "activation_checkpointing": {
+                "partition_activations": True,
+                "cpu_checkpointing": True,
+                "contiguous_memory_optimization": False,
+                "number_checkpoints": 4,
+                "synchronize_checkpoint_boundary": False,
+                "profile": False,
+            },
+            "wall_clock_breakdown": False,
+            "zero_allow_untested_optimizer": True,
+        }
+    else:
+        # Stage 2: Partition gradients and optimizer states (default)
+        return {
+            "train_micro_batch_size_per_gpu": train_micro_batch_size,
+            "gradient_accumulation_steps": 1,
+            "optimizer": {
+                "type": "AdamW",
+                "params": {"lr": 1e-4, "weight_decay": 0.01, "betas": [0.9, 0.999]},
+            },
+            "scheduler": {
+                "type": "WarmupDecayLR",
+                "params": {
+                    "warmup_min_lr": 0,
+                    "warmup_max_lr": 1e-4,
+                    "warmup_num_steps": 1000,
+                    "total_num_steps": 50000,
+                },
+            },
+            "fp16": {
+                "enabled": True,
+                "auto_cast": False,
+                "loss_scale": 0,
+                "initial_scale_power": 16,
+                "loss_scale_window": 1000,
+                "hysteresis": 2,
+                "min_loss_scale": 1,
+            },
+            "zero_optimization": {
+                "stage": 2,
+                "contiguous_gradients": True,
+                "overlap_comm": True,
+                "reduce_scatter": True,
+                "reduce_bucket_size": 5e8,
+                "allgather_bucket_size": 5e8,
+            },
+            "activation_checkpointing": {
+                "partition_activations": False,
+                "cpu_checkpointing": False,
+                "contiguous_memory_optimization": False,
+                "number_checkpoints": 4,
+                "synchronize_checkpoint_boundary": False,
+                "profile": False,
+            },
+            "wall_clock_breakdown": False,
+        }
 
 
 class DetectionLoss(nn.Module):
@@ -90,9 +233,23 @@ class DetectionLoss(nn.Module):
         return loss_dict
 
 
-def train_epoch(model, dataloader, criterion, optimizer, device, scaler, config):
+def train_epoch(
+    model,
+    dataloader,
+    criterion,
+    optimizer,
+    device,
+    scaler,
+    config,
+    model_engine=None,
+    is_deepspeed=False,
+):
     """Train for one epoch."""
-    model.train()
+    if is_deepspeed:
+        model_engine.train()
+    else:
+        model.train()
+
     loss_meter = AverageMeter()
     ce_meter = AverageMeter()
     bbox_meter = AverageMeter()
@@ -112,31 +269,40 @@ def train_epoch(model, dataloader, criterion, optimizer, device, scaler, config)
                 "boxes": batch["boxes"].to(device),
             }
 
-        optimizer.zero_grad()
-
-        with torch.cuda.amp.autocast(
-            enabled=config["training"].get("mixed_precision", False)
-        ):
-            outputs = model(images)
+        if is_deepspeed:
+            # DeepSpeed handles forward, backward, and optimization
+            outputs = model_engine(images)
             loss_dict = criterion(outputs, targets)
             loss = loss_dict["loss"]
 
-        if config["training"].get("mixed_precision", False):
-            scaler.scale(loss).backward()
-            if config["training"].get("gradient_clip", 0) > 0:
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), config["training"]["gradient_clip"]
-                )
-            scaler.step(optimizer)
-            scaler.update()
+            model_engine.backward(loss)
+            model_engine.step()
         else:
-            loss.backward()
-            if config["training"].get("gradient_clip", 0) > 0:
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), config["training"]["gradient_clip"]
-                )
-            optimizer.step()
+            optimizer.zero_grad()
+
+            with torch.cuda.amp.autocast(
+                enabled=config["training"].get("mixed_precision", False)
+            ):
+                outputs = model(images)
+                loss_dict = criterion(outputs, targets)
+                loss = loss_dict["loss"]
+
+            if config["training"].get("mixed_precision", False):
+                scaler.scale(loss).backward()
+                if config["training"].get("gradient_clip", 0) > 0:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), config["training"]["gradient_clip"]
+                    )
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                if config["training"].get("gradient_clip", 0) > 0:
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), config["training"]["gradient_clip"]
+                    )
+                optimizer.step()
 
         # Update meters
         loss_meter.update(loss.item())
@@ -164,9 +330,15 @@ def train_epoch(model, dataloader, criterion, optimizer, device, scaler, config)
     }
 
 
-def validate(model, dataloader, criterion, device, config):
+def validate(
+    model, dataloader, criterion, device, config, model_engine=None, is_deepspeed=False
+):
     """Validate model."""
-    model.eval()
+    if is_deepspeed:
+        model_engine.eval()
+    else:
+        model.eval()
+
     loss_meter = AverageMeter()
 
     with torch.no_grad():
@@ -184,7 +356,11 @@ def validate(model, dataloader, criterion, device, config):
                     "boxes": batch["boxes"].to(device),
                 }
 
-            outputs = model(images)
+            if is_deepspeed:
+                outputs = model_engine(images)
+            else:
+                outputs = model(images)
+
             loss_dict = criterion(outputs, targets)
             loss_meter.update(loss_dict["loss"].item())
 
@@ -194,6 +370,17 @@ def validate(model, dataloader, criterion, device, config):
 def main():
     args = parse_args()
 
+    # Initialize distributed training if enabled
+    if args.distributed:
+        if args.local_rank == -1:
+            args.local_rank = int(os.environ.get("LOCAL_RANK", 0))
+
+        torch.cuda.set_device(args.local_rank)
+        dist.init_process_group(backend="nccl")
+
+        if args.world_size == -1:
+            args.world_size = dist.get_world_size()
+
     # Load and optimize configuration
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
@@ -202,7 +389,11 @@ def main():
     config = adjust_config_for_gpu_memory(config)
 
     set_seed(config.get("seed", 42))
-    device = get_device()
+    device = (
+        get_device()
+        if not args.distributed
+        else torch.device(f"cuda:{args.local_rank}")
+    )
 
     print(f"Training {config['name']}")
     print(f"Device: {device}")
@@ -211,12 +402,15 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Setup experiment tracking
-    tracker = ExperimentTracker(
-        experiment_name=config["logging"]["experiment_name"],
-        save_dir=config["logging"]["save_dir"],
-    )
-    tracker.log_config(config)
+    # Setup experiment tracking (only on main process)
+    if not args.distributed or args.local_rank == 0:
+        tracker = ExperimentTracker(
+            experiment_name=config["logging"]["experiment_name"],
+            save_dir=config["logging"]["save_dir"],
+        )
+        tracker.log_config(config)
+    else:
+        tracker = None
 
     # Create datasets
     data_dir = args.data_dir or config["data"]["data_dir"]
@@ -241,10 +435,18 @@ def main():
         debug=args.debug,
     )
 
+    # Create distributed samplers if distributed
+    train_sampler = None
+    val_sampler = None
+    if args.distributed:
+        train_sampler = DistributedSampler(train_dataset)
+        val_sampler = DistributedSampler(val_dataset, shuffle=False)
+
     train_loader = DataLoader(
         train_dataset,
         batch_size=config["data"]["batch_size"],
-        shuffle=True,
+        shuffle=(train_sampler is None),
+        sampler=train_sampler,
         num_workers=config["data"]["num_workers"],
         pin_memory=config["data"]["pin_memory"],
         collate_fn=train_dataset.collate_fn,
@@ -254,25 +456,94 @@ def main():
         val_dataset,
         batch_size=config["data"]["batch_size"],
         shuffle=False,
+        sampler=val_sampler,
         num_workers=config["data"]["num_workers"],
         pin_memory=config["data"]["pin_memory"],
         collate_fn=val_dataset.collate_fn,
     )
 
-    print(f"Train dataset: {len(train_dataset)} samples")
-    print(f"Val dataset: {len(val_dataset)} samples")
+    if not args.distributed or args.local_rank == 0:
+        print(f"Train dataset: {len(train_dataset)} samples")
+        print(f"Val dataset: {len(val_dataset)} samples")
 
     # Create model
     model_config = config["model"].copy()
     model_config.pop("name")  # Remove name from config
 
     model = create_rat_detection_model(**model_config)
-    model = model.to(device)
 
-    print(
-        f"Model parameters: "
-        f"{sum(p.numel() for p in model.parameters() if p.requires_grad):,}"
-    )
+    # Initialize DeepSpeed or regular distributed training
+    model_engine = None
+    optimizer = None
+    scheduler = None
+
+    if args.deepspeed and DEEPSPEED_AVAILABLE:
+        print(f"Using DeepSpeed with ZeRO Stage {args.zero_stage}")
+
+        # Create DeepSpeed configuration
+        deepspeed_config = create_deepspeed_config(
+            zero_stage=args.zero_stage,
+            train_micro_batch_size=config["data"]["batch_size"],
+        )
+
+        # Initialize DeepSpeed engine
+        model_engine, optimizer, _, scheduler = deepspeed.initialize(
+            model=model,
+            config=deepspeed_config,
+            dist_init_required=not args.distributed,
+        )
+
+        device = model_engine.device
+        is_deepspeed = True
+
+        print(f"DeepSpeed initialized with device: {device}")
+
+    else:
+        # Standard training setup
+        model = model.to(device)
+        is_deepspeed = False
+
+        if args.distributed:
+            model = DDP(model, device_ids=[args.local_rank])
+
+        # Optimizer
+        optimizer_config = config["training"]["optimizer"]
+        if optimizer_config["name"] == "adamw":
+            optimizer = torch.optim.AdamW(
+                model.parameters(),
+                lr=optimizer_config["lr"],
+                weight_decay=optimizer_config["weight_decay"],
+                betas=optimizer_config["betas"],
+            )
+        else:
+            raise ValueError(f"Unknown optimizer: {optimizer_config['name']}")
+
+        # Scheduler
+        scheduler_config = config["training"].get("scheduler", {})
+        if scheduler_config.get("name") == "step":
+            scheduler = torch.optim.lr_scheduler.StepLR(
+                optimizer,
+                step_size=scheduler_config["step_size"],
+                gamma=scheduler_config["gamma"],
+            )
+        elif scheduler_config.get("name") == "cosine":
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=config["training"]["num_epochs"],
+                eta_min=scheduler_config.get("min_lr", 0),
+            )
+        else:
+            scheduler = None
+
+    if not args.distributed or args.local_rank == 0:
+        if is_deepspeed:
+            # For DeepSpeed, parameter counting is more complex due to partitioning
+            print("Model parameters: DeepSpeed partitioned (exact count not available)")
+        else:
+            print(
+                f"Model parameters: "
+                f"{sum(p.numel() for p in model.parameters() if p.requires_grad):,}"
+            )
 
     # Loss function
     criterion = DetectionLoss(
@@ -284,48 +555,17 @@ def main():
         focal_gamma=config["model"]["focal_gamma"],
     )
 
-    # Optimizer
-    optimizer_config = config["training"]["optimizer"]
-    if optimizer_config["name"] == "adamw":
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=optimizer_config["lr"],
-            weight_decay=optimizer_config["weight_decay"],
-            betas=optimizer_config["betas"],
-        )
-    else:
-        raise ValueError(f"Unknown optimizer: {optimizer_config['name']}")
-
-    # Scheduler
-    scheduler_config = config["training"].get("scheduler", {})
-    if scheduler_config.get("name") == "step":
-        scheduler = torch.optim.lr_scheduler.StepLR(
-            optimizer,
-            step_size=scheduler_config["step_size"],
-            gamma=scheduler_config["gamma"],
-        )
-    elif scheduler_config.get("name") == "cosine":
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=config["training"]["num_epochs"],
-            eta_min=scheduler_config.get("min_lr", 0),
-        )
-    else:
-        scheduler = None
-
-    # Mixed precision scaler
-    scaler = (
-        torch.cuda.amp.GradScaler()
-        if config["training"].get("mixed_precision", False)
-        else None
-    )
+    # Mixed precision scaler (not used with DeepSpeed)
+    scaler = None
+    if not is_deepspeed and config["training"].get("mixed_precision", False):
+        scaler = torch.cuda.amp.GradScaler()
 
     # Training loop
     best_val_loss = float("inf")
     start_epoch = 0
 
-    # Resume if specified
-    if args.resume:
+    # Resume if specified (simplified for DeepSpeed)
+    if args.resume and not is_deepspeed:
         checkpoint = torch.load(args.resume, map_location=device)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
@@ -333,34 +573,90 @@ def main():
             scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         start_epoch = checkpoint["epoch"] + 1
         best_val_loss = checkpoint["best_val_loss"]
-        print(f"Resumed from epoch {start_epoch}")
+        if not args.distributed or args.local_rank == 0:
+            print(f"Resumed from epoch {start_epoch}")
 
-    print(f"Starting training for {config['training']['num_epochs']} epochs...")
+    if not args.distributed or args.local_rank == 0:
+        print(f"Starting training for {config['training']['num_epochs']} epochs...")
 
     for epoch in range(start_epoch, config["training"]["num_epochs"]):
-        print(f"\nEpoch {epoch + 1}/{config['training']['num_epochs']}")
-        print("-" * 50)
+        if not args.distributed or args.local_rank == 0:
+            print(f"\nEpoch {epoch + 1}/{config['training']['num_epochs']}")
+            print("-" * 50)
+
+        # Update sampler epoch for distributed training
+        if args.distributed and train_sampler is not None:
+            train_sampler.set_epoch(epoch)
 
         # Training
         train_metrics = train_epoch(
-            model, train_loader, criterion, optimizer, device, scaler, config
+            model,
+            train_loader,
+            criterion,
+            optimizer,
+            device,
+            scaler,
+            config,
+            model_engine=model_engine,
+            is_deepspeed=is_deepspeed,
         )
 
         # Validation
         if (epoch + 1) % config["eval"]["eval_interval"] == 0:
-            val_metrics = validate(model, val_loader, criterion, device, config)
+            val_metrics = validate(
+                model,
+                val_loader,
+                criterion,
+                device,
+                config,
+                model_engine=model_engine,
+                is_deepspeed=is_deepspeed,
+            )
 
-            # Log metrics
-            all_metrics = {**train_metrics, **val_metrics}
-            tracker.log_metrics(all_metrics, epoch)
+            # Log metrics (only on main process)
+            if tracker is not None:
+                all_metrics = {**train_metrics, **val_metrics}
+                tracker.log_metrics(all_metrics, epoch)
 
-            print(f"Train Loss: {train_metrics['train_loss']:.4f}")
-            print(f"Val Loss: {val_metrics['val_loss']:.4f}")
+            if not args.distributed or args.local_rank == 0:
+                print(f"Train Loss: {train_metrics['train_loss']:.4f}")
+                print(f"Val Loss: {val_metrics['val_loss']:.4f}")
 
-            # Save best model
-            if val_metrics["val_loss"] < best_val_loss:
+            # Save best model (only on main process)
+            if (not args.distributed or args.local_rank == 0) and val_metrics[
+                "val_loss"
+            ] < best_val_loss:
                 best_val_loss = val_metrics["val_loss"]
 
+                if is_deepspeed:
+                    # DeepSpeed model saving
+                    model_engine.save_checkpoint(output_dir, tag=f"best_epoch_{epoch}")
+                else:
+                    torch.save(
+                        {
+                            "epoch": epoch,
+                            "model_state_dict": model.state_dict(),
+                            "optimizer_state_dict": optimizer.state_dict(),
+                            "scheduler_state_dict": (
+                                scheduler.state_dict() if scheduler else None
+                            ),
+                            "best_val_loss": best_val_loss,
+                            "config": config,
+                        },
+                        output_dir / "best_model.pth",
+                    )
+
+                print(f"New best model saved! Val Loss: {best_val_loss:.4f}")
+
+        # Update scheduler (not for DeepSpeed as it handles scheduling internally)
+        if scheduler and not is_deepspeed:
+            scheduler.step()
+
+        # Save regular checkpoint (only on main process)
+        if (not args.distributed or args.local_rank == 0) and (epoch + 1) % 10 == 0:
+            if is_deepspeed:
+                model_engine.save_checkpoint(output_dir, tag=f"epoch_{epoch + 1}")
+            else:
                 torch.save(
                     {
                         "epoch": epoch,
@@ -372,33 +668,17 @@ def main():
                         "best_val_loss": best_val_loss,
                         "config": config,
                     },
-                    output_dir / "best_model.pth",
+                    output_dir / f"checkpoint_epoch_{epoch + 1}.pth",
                 )
 
-                print(f"New best model saved! Val Loss: {best_val_loss:.4f}")
+    if not args.distributed or args.local_rank == 0:
+        print(f"\nTraining completed! Best validation loss: {best_val_loss:.4f}")
+        if tracker is not None:
+            tracker.finish()
 
-        # Update scheduler
-        if scheduler:
-            scheduler.step()
-
-        # Save regular checkpoint
-        if (epoch + 1) % 10 == 0:
-            torch.save(
-                {
-                    "epoch": epoch,
-                    "model_state_dict": model.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "scheduler_state_dict": (
-                        scheduler.state_dict() if scheduler else None
-                    ),
-                    "best_val_loss": best_val_loss,
-                    "config": config,
-                },
-                output_dir / f"checkpoint_epoch_{epoch + 1}.pth",
-            )
-
-    print(f"\nTraining completed! Best validation loss: {best_val_loss:.4f}")
-    tracker.finish()
+    # Clean up distributed processes
+    if args.distributed:
+        dist.destroy_process_group()
 
 
 if __name__ == "__main__":

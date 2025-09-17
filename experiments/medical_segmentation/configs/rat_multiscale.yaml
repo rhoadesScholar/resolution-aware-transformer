@@ -10,19 +10,18 @@ seed: 42
 # Data configuration
 data:
   data_dir: "/path/to/ISIC2018"  # Update this path
-  image_size: 256
+  image_size: 128  # Reduced from 256 to 128 for memory testing
   num_workers: 12  # Optimized for H200 multi-scale - was 4
 
 # Model configuration
 model:
   name: "rat"
-  multi_scale: true
-  scales: [256, 128, 64]
+  multi_scale: false  # Disable multi-scale to avoid memory issues for now
   spatial_dims: 2
   input_features: 3
-  feature_dims: 256
-  num_blocks: 4
-  num_heads: 16
+  feature_dims: 128  # Reduced from 256 to 128
+  num_blocks: 2      # Reduced from 4 to 2  
+  num_heads: 8       # Reduced from 16 to 8
   attention_type: "dense"
   learnable_rose: true
   mlp_ratio: 4
@@ -31,7 +30,7 @@ model:
 # Training configuration
 training:
   epochs: 100
-  batch_size: 32  # Optimized for H200 multi-scale - was 8
+  batch_size: 4  # Further reduced for testing
   learning_rate: 0.0001
   weight_decay: 0.01
   scheduler: "cosine"

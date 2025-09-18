@@ -1,0 +1,89 @@
+# Unified RAT Configuration Template
+# This template demonstrates the new auto-optimization features
+
+# Experiment metadata
+experiment_name: "rat_unified_segmentation"
+description: "RAT with unified training framework and auto-optimization"
+task_type: "segmentation"  # segmentation or detection
+
+# Random seed for reproducibility
+seed: 42
+
+# Model configuration
+model:
+  name: "rat"
+  spatial_dims: 2
+  input_features: 3
+  feature_dims: 128
+  num_blocks: 4
+  num_heads: 8
+  attention_type: "dense"  # "dense" or "sparse"
+  multi_scale: false
+  scales: [256, 128, 64]  # Used if multi_scale is true
+  learnable_rose: true
+  mlp_ratio: 4
+  mlp_dropout: 0.1
+
+# Training configuration with auto-optimization
+training:
+  epochs: 100
+  
+  # Auto batch size selection - will be optimized based on GPU memory and model size
+  auto_batch_size: true
+  # batch_size: 4  # Optional: specify explicit batch size
+  
+  # Target effective batch size across all GPUs (uses gradient accumulation)
+  target_batch_size: 32
+  
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  scheduler: "cosine"  # "cosine", "step", or null
+  
+  # Loss function for segmentation
+  loss: "combined"  # "bce", "dice", "combined"
+  
+  # Gradient clipping
+  grad_clip: 1.0
+  
+  # Mixed precision training (auto-enabled for Ampere+ GPUs)
+  mixed_precision: true
+  
+  # DeepSpeed Stage 2 (auto-enabled for large models or multi-GPU)
+  deepspeed: true
+  zero_stage: 2
+  
+  # Accelerate integration (preferred over manual distributed setup)
+  use_accelerate: true
+  
+  # Checkpoint saving
+  save_freq: 10
+
+# Data configuration with auto-optimization
+data:
+  # Dataset path - will be auto-detected or specified via CLI
+  data_dir: "/path/to/ISIC2018"  # Update this path
+  dataset_name: "isic2018"
+  
+  image_size: 256
+  
+  # Auto-optimize data loading based on available CPUs and GPUs
+  auto_optimize: true
+  # num_workers: 4  # Optional: specify explicit number of workers
+  # pin_memory: true  # Optional: specify explicit pin_memory setting
+
+# Logging and experiment tracking
+logging:
+  backend: "tensorboard"
+  log_dir: "results/tensorboard_logs"
+  
+  # MLFlow integration for experiment tracking
+  use_mlflow: true
+  mlflow_experiment_name: "rat_experiments"
+
+# Distributed training (auto-detected)
+distributed:
+  auto_detect: true
+  backend: "nccl"  # "nccl" for GPU, "gloo" for CPU
+
+# Debug mode (use smaller dataset for testing)
+debug: false

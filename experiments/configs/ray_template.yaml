@@ -1,0 +1,46 @@
+# Simplified RAT Configuration for Ray Train
+# This replaces the complex auto-optimization with Ray's built-in capabilities
+
+# Experiment metadata
+experiment_name: "rat_ray_segmentation"
+description: "RAT with Ray Train - simplified distributed training"
+task_type: "segmentation"  # segmentation or detection
+
+# Random seed for reproducibility
+seed: 42
+
+# Model configuration (unchanged)
+model:
+  name: "rat"
+  spatial_dims: 2
+  input_features: 3
+  feature_dims: 128
+  num_blocks: 4
+  num_heads: 8
+  attention_type: "dense"
+  multi_scale: false
+  learnable_rose: true
+  mlp_ratio: 4
+  mlp_dropout: 0.1
+
+# Simplified training configuration (Ray handles optimization)
+training:
+  epochs: 100
+  batch_size: 8  # Ray automatically distributes across workers
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  scheduler: "cosine"
+  grad_clip: 1.0
+
+# Simplified data configuration (Ray handles distribution)
+data:
+  data_dir: "/path/to/ISIC2018"  # Update this path
+  dataset_name: "isic2018"
+  image_size: 256
+  num_workers: 4
+
+# Logging (Ray handles experiment tracking)
+logging:
+  backend: "ray"  # Ray Train provides built-in tracking
+
+# Ray automatically handles distributed training - no manual configuration needed!

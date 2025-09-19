@@ -11,11 +11,15 @@ import torch.nn.functional as F
 # Add the source directory to path to import our model
 sys.path.append(str(Path(__file__).parent.parent.parent / "src"))
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 try:
     from resolution_aware_transformer import ResolutionAwareTransformer
 except ImportError:
-    print(
-        "Warning: Could not import ResolutionAwareTransformer. "
+    logger.warning(
+        "Could not import ResolutionAwareTransformer. "
         "Make sure it's installed."
     )
     ResolutionAwareTransformer = None
@@ -573,9 +577,9 @@ def load_pretrained_model(
         else:
             model.load_state_dict(checkpoint)
 
-        print(f"Loaded pretrained model from {model_path}")
+        logger.info(f"Loaded pretrained model from {model_path}")
     else:
-        print(f"Warning: Model checkpoint not found at {model_path}")
+        logger.info(f"Warning: Model checkpoint not found at {model_path}")
 
     return model
 
@@ -612,7 +616,7 @@ def save_model(
         checkpoint["metrics"] = metrics
 
     torch.save(checkpoint, save_path)
-    print(f"Saved model checkpoint to {save_path}")
+    logger.info(f"Saved model checkpoint to {save_path}")
 
 
 # Model configurations for different experiments

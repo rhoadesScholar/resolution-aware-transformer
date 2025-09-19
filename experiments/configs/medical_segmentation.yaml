@@ -23,6 +23,11 @@ data:
   train_split: "train"
   val_split: "val"
   
+  # Download configuration
+  download_timeout_factor: 3  # Multiply estimated time by this factor for timeout
+  min_download_timeout: 30    # Minimum timeout in seconds
+  max_download_timeout: 3600  # Maximum timeout in seconds (1 hour)
+  
   # Data augmentation
   augmentation:
     random_flip: 0.5

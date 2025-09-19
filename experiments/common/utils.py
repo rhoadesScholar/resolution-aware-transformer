@@ -3,6 +3,8 @@
 from datetime import datetime
 import json
 import logging
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 import random
 from typing import Any, Dict, Optional
@@ -77,7 +79,7 @@ def get_optimal_batch_size(model, sample_input, device, max_batch_size=128, star
     optimal_batch_size = 1
     
     device_name = torch.cuda.get_device_name(device) if torch.cuda.is_available() else str(device)
-    print(f"Finding optimal batch size for device: {device_name}...")
+    logger.info(f"Finding optimal batch size for device: {device_name}...")
     
     while batch_size <= max_batch_size:
         try:
@@ -101,18 +103,18 @@ def get_optimal_batch_size(model, sample_input, device, max_batch_size=128, star
             
             optimal_batch_size = batch_size
             memory_used = torch.cuda.max_memory_allocated(device) / 1024**3  # GB
-            print(f"Batch size {batch_size}: OK (Memory: {memory_used:.1f}GB)")
+            logger.info(f"Batch size {batch_size}: OK (Memory: {memory_used:.1f}GB)")
             
             batch_size *= 2
             
         except RuntimeError as e:
             if "out of memory" in str(e).lower():
-                print(f"Batch size {batch_size}: OOM")
+                logger.info(f"Batch size {batch_size}: OOM")
                 break
             else:
                 raise e
     
-    print(f"Optimal batch size: {optimal_batch_size}")
+    logger.info(f"Optimal batch size: {optimal_batch_size}")
     model.train()
     return optimal_batch_size
 
@@ -147,7 +149,7 @@ def adjust_config_for_gpu_memory(config: Dict[str, Any], gpu_memory_gb: int = No
         except:
             gpu_memory_gb = 80  # Fallback to H100
     
-    print(f"Optimizing for GPU with {gpu_memory_gb}GB memory...")
+    logger.info(f"Optimizing for GPU with {gpu_memory_gb}GB memory...")
     
     # Get image size and task type
     if "data" in config:
@@ -200,25 +202,25 @@ def adjust_config_for_gpu_memory(config: Dict[str, Any], gpu_memory_gb: int = No
     if "training" in config:
         old_batch = config["training"].get("batch_size", 16)
         config["training"]["batch_size"] = optimal_batch
-        print(f"Training batch size: {old_batch} → {optimal_batch} ({gpu_memory_gb}GB GPU)")
+        logger.info(f"Training batch size: {old_batch} → {optimal_batch} ({gpu_memory_gb}GB GPU)")
     
     if "data" in config:
         old_batch = config["data"].get("batch_size", 16)
         config["data"]["batch_size"] = optimal_batch
-        print(f"Data batch size: {old_batch} → {optimal_batch} ({gpu_memory_gb}GB GPU)")
+        logger.info(f"Data batch size: {old_batch} → {optimal_batch} ({gpu_memory_gb}GB GPU)")
     
     if "evaluation" in config:
         old_batch = config["evaluation"].get("batch_size", 16)
         eval_batch = min(optimal_batch * 2, max_batch)  # Can use larger batch for eval
         config["evaluation"]["batch_size"] = eval_batch
-        print(f"Eval batch size: {old_batch} → {eval_batch} ({gpu_memory_gb}GB GPU)")
+        logger.info(f"Eval batch size: {old_batch} → {eval_batch} ({gpu_memory_gb}GB GPU)")
     
     # Optimize number of workers based on batch size and memory
     optimal_workers = min(20, max(4, optimal_batch // 2))
     if "data" in config:
         old_workers = config["data"].get("num_workers", 4)
         config["data"]["num_workers"] = optimal_workers
-        print(f"Data workers: {old_workers} → {optimal_workers}")
+        logger.info(f"Data workers: {old_workers} → {optimal_workers}")
     
     return config
 
@@ -249,10 +251,10 @@ def get_device(prefer_cuda: bool = True) -> torch.device:
     """Get the best available device."""
     if prefer_cuda and torch.cuda.is_available():
         device = torch.device("cuda")
-        print(f"Using CUDA device: {torch.cuda.get_device_name(0)}")
+        logger.info(f"Using CUDA device: {torch.cuda.get_device_name(0)}")
     else:
         device = torch.device("cpu")
-        print("Using CPU device")
+        logger.info("Using CPU device")
     return device
 
 

@@ -20,6 +20,11 @@ data:
   train_split: "train2017"
   val_split: "val2017"
   
+  # Download configuration (COCO is very large ~20GB)
+  download_timeout_factor: 4  # Higher factor for large files
+  min_download_timeout: 60    # Minimum timeout in seconds
+  max_download_timeout: 7200  # Maximum timeout in seconds (2 hours)
+  
   # Data augmentation
   augmentation:
     random_flip: 0.5

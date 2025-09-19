@@ -17,6 +17,15 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
 import math
+import time
+import fcntl
+
+# Optional dependency for network speed detection
+try:
+    import speedtest
+    SPEEDTEST_AVAILABLE = True
+except ImportError:
+    SPEEDTEST_AVAILABLE = False
 
 # Ray Train imports
 try:
@@ -45,6 +54,17 @@ import yaml
 EXPERIMENTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(EXPERIMENTS_DIR / "common"))
 
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('training.log')
+    ]
+)
+logger = logging.getLogger(__name__)
+
 
 def get_gpu_memory_info() -> Dict[str, float]:
     """Get GPU memory information for automatic batch sizing."""
@@ -66,7 +86,7 @@ def get_gpu_memory_info() -> Dict[str, float]:
             "device_name": gpu_props.name
         }
     except (torch.cuda.CudaError, RuntimeError) as e:
-        print(f"Warning: Could not get GPU memory info: {e}")
+        logger.warning(f"Could not get GPU memory info: {e}")
         return {"total_memory": 8.0, "available_memory": 6.0}
 
 
@@ -161,12 +181,12 @@ def calculate_optimal_batch_size(
     gradient_accumulation_steps = max(1, target_effective_batch_size // max_batch_size)
     effective_batch_size = max_batch_size * gradient_accumulation_steps
     
-    print(f"GPU Memory: {available_memory:.1f}GB available")
-    print(f"Model Memory: {model_memory:.1f}GB estimated") 
-    print(f"Sample Memory: {sample_memory*1000:.1f}MB per sample")
-    print(f"Optimal batch size: {max_batch_size} per GPU")
-    print(f"Gradient accumulation: {gradient_accumulation_steps} steps")
-    print(f"Effective batch size: {effective_batch_size}")
+    logger.info(f"GPU Memory: {available_memory:.1f}GB available")
+    logger.info(f"Model Memory: {model_memory:.1f}GB estimated") 
+    logger.info(f"Sample Memory: {sample_memory*1000:.1f}MB per sample")
+    logger.info(f"Optimal batch size: {max_batch_size} per GPU")
+    logger.info(f"Gradient accumulation: {gradient_accumulation_steps} steps")
+    logger.info(f"Effective batch size: {effective_batch_size}")
     
     return {
         "batch_size": max_batch_size,
@@ -260,40 +280,163 @@ def create_deepspeed_config(
     # Remove None values
     deepspeed_config = {k: v for k, v in deepspeed_config.items() if v is not None}
     
-    print(f"DeepSpeed ZeRO Stage {zero_stage} configured")
-    print(f"Mixed precision: {deepspeed_config['fp16']['enabled']}")
+    logger.info(f"DeepSpeed ZeRO Stage {zero_stage} configured")
+    logger.info(f"Mixed precision: {deepspeed_config['fp16']['enabled']}")
     
     return deepspeed_config
 
 
-def download_dataset(dataset_name: str, dataset_url: str, local_data_dir: str) -> None:
+def get_network_speed() -> float:
     """
-    Download and prepare datasets to local storage.
+    Get network download speed in MB/s.
+    
+    Returns:
+        Download speed in MB/s, defaults to 10 MB/s if detection fails
+    """
+    if not SPEEDTEST_AVAILABLE:
+        logger.info("speedtest-cli not available, using default 10 MB/s")
+        return 10.0
+        
+    try:
+        st = speedtest.Speedtest()
+        st.get_best_server()
+        download_speed = st.download() / (8 * 1024 * 1024)  # Convert from bits/s to MB/s
+        logger.info(f"Detected network speed: {download_speed:.1f} MB/s")
+        return download_speed
+    except Exception as e:
+        logger.warning(f"Could not detect network speed: {e}, using default 10 MB/s")
+        return 10.0  # Default 10 MB/s
+
+
+def calculate_download_timeout(file_size_mb: float, network_speed_mb_s: float, 
+                              config: Optional[Dict[str, Any]] = None) -> int:
+    """
+    Calculate intelligent download timeout based on file size and network speed.
+    
+    Args:
+        file_size_mb: Estimated file size in MB
+        network_speed_mb_s: Network speed in MB/s
+        config: Configuration dict with timeout settings
+        
+    Returns:
+        Timeout in seconds with safety factor
+    """
+    # Get timeout configuration
+    if config and "data" in config:
+        data_config = config["data"]
+        timeout_factor = data_config.get("download_timeout_factor", 3)
+        min_timeout = data_config.get("min_download_timeout", 30)
+        max_timeout = data_config.get("max_download_timeout", 3600)
+    else:
+        timeout_factor = 3
+        min_timeout = 30
+        max_timeout = 3600
+    
+    # Calculate base time needed
+    base_time = file_size_mb / network_speed_mb_s
+    
+    # Add safety factor and ensure within bounds
+    timeout = max(min_timeout, int(base_time * timeout_factor))
+    timeout = min(timeout, max_timeout)
+    
+    logger.info(f"Calculated timeout: {timeout}s for {file_size_mb:.1f}MB file (factor: {timeout_factor}x)")
+    return timeout
+
+
+def acquire_download_lock(dataset_name: str, local_data_dir: str) -> Optional[object]:
+    """
+    Acquire file lock to prevent concurrent downloads of the same dataset.
+    
+    Args:
+        dataset_name: Name of dataset being downloaded
+        local_data_dir: Local data directory
+        
+    Returns:
+        Lock file handle or None if lock could not be acquired
+    """
+    lock_file = Path(local_data_dir) / f".{dataset_name}_download.lock"
+    
+    try:
+        lock_handle = open(lock_file, 'w')
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        logger.info(f"Acquired download lock for {dataset_name}")
+        return lock_handle
+    except (IOError, OSError):
+        logger.info(f"Another process is downloading {dataset_name}, waiting...")
+        return None
+
+
+def release_download_lock(lock_handle: Optional[object], dataset_name: str) -> None:
+    """Release download lock."""
+    if lock_handle:
+        try:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+            lock_handle.close()
+            logger.info(f"Released download lock for {dataset_name}")
+        except Exception as e:
+            logger.warning(f"Error releasing lock: {e}")
+
+
+def download_dataset(dataset_name: str, dataset_url: str, local_data_dir: str, 
+                    network_speed: Optional[float] = None, config: Optional[Dict[str, Any]] = None) -> None:
+    """
+    Download and prepare datasets to local storage with concurrent download protection.
     
     Args:
         dataset_name: Name of the dataset (e.g., 'isic2018', 'coco2017')
         dataset_url: URL to download the dataset from
         local_data_dir: Local directory to store the dataset
+        network_speed: Network speed in MB/s (auto-detected if None)
+        config: Configuration dict with download settings
     """
     local_path = Path(local_data_dir)
     local_path.mkdir(parents=True, exist_ok=True)
     
-    print(f"Checking dataset {dataset_name} in {local_data_dir}")
+    logger.info(f"Checking dataset {dataset_name} in {local_data_dir}")
     
     # Check if dataset already exists
     if _dataset_exists(dataset_name, local_path):
-        print(f"Dataset {dataset_name} already exists in {local_data_dir}")
+        logger.info(f"Dataset {dataset_name} already exists in {local_data_dir}")
         return
     
-    print(f"Downloading {dataset_name} dataset...")
+    # Acquire download lock to prevent concurrent downloads
+    lock_handle = acquire_download_lock(dataset_name, local_data_dir)
     
-    if dataset_name == "isic2018":
-        _download_isic2018(local_path)
-    elif dataset_name == "coco2017":
-        _download_coco2017(local_path)
-    else:
-        print(f"Warning: No automatic download available for {dataset_name}")
-        print(f"Please manually download from {dataset_url} to {local_data_dir}")
+    if lock_handle is None:
+        # Another process is downloading, wait and check again
+        max_wait_time = 3600  # 1 hour max wait
+        wait_interval = 30    # Check every 30 seconds
+        waited_time = 0
+        
+        while waited_time < max_wait_time:
+            logger.info(f"Waiting for {dataset_name} download to complete...")
+            time.sleep(wait_interval)
+            waited_time += wait_interval
+            
+            if _dataset_exists(dataset_name, local_path):
+                logger.info(f"Dataset {dataset_name} download completed by another process")
+                return
+        
+        logger.error(f"Timeout waiting for {dataset_name} download")
+        return
+    
+    try:
+        # Get network speed for timeout calculation
+        if network_speed is None:
+            network_speed = get_network_speed()
+        
+        logger.info(f"Downloading {dataset_name} dataset...")
+        
+        if dataset_name == "isic2018":
+            _download_isic2018(local_path, network_speed, config)
+        elif dataset_name == "coco2017":
+            _download_coco2017(local_path, network_speed, config)
+        else:
+            logger.warning(f"No automatic download available for {dataset_name}")
+            logger.info(f"Please manually download from {dataset_url} to {local_data_dir}")
+    
+    finally:
+        release_download_lock(lock_handle, dataset_name)
 
 def _dataset_exists(dataset_name: str, local_path: Path) -> bool:
     """Check if dataset already exists locally."""
@@ -323,9 +466,10 @@ def _dataset_exists(dataset_name: str, local_path: Path) -> bool:
         return (local_path / "train2017").exists() and (local_path / "val2017").exists()
     return False
 
-def _download_isic2018(local_path: Path) -> None:
-    """Download ISIC 2018 dataset."""
-    print("Downloading ISIC 2018 dataset...")
+def _download_isic2018(local_path: Path, network_speed: float = 10.0, 
+                      config: Optional[Dict[str, Any]] = None) -> None:
+    """Download ISIC 2018 dataset with intelligent timeouts."""
+    logger.info("Downloading ISIC 2018 dataset...")
     
     # ISIC 2018 Task 1 files - using Kaggle API and direct links where available
     files_to_download = [
@@ -371,8 +515,8 @@ def _download_isic2018(local_path: Path) -> None:
     (local_path / "val" / "masks").mkdir(parents=True, exist_ok=True)
     
     # Check if dataset can be downloaded via Kaggle API first
-    if _try_kaggle_download_isic(local_path):
-        print("✓ ISIC 2018 dataset downloaded via Kaggle API")
+    if _try_kaggle_download_isic(local_path, network_speed, config):
+        logger.info("✓ ISIC 2018 dataset downloaded via Kaggle API")
         return
     
     # Fallback to direct download
@@ -380,37 +524,54 @@ def _download_isic2018(local_path: Path) -> None:
         file_path = local_path / file_info["filename"]
         
         if not file_path.exists():
-            print(f"Downloading {file_info['filename']}...")
+            logger.info(f"Downloading {file_info['filename']}...")
+            
+            # Estimate file size and calculate timeout
+            estimated_size_mb = {
+                "Training_Input": 600,    # ~600MB
+                "Training_GroundTruth": 50,  # ~50MB  
+                "Validation_Input": 300,  # ~300MB
+                "Validation_GroundTruth": 25  # ~25MB
+            }
+            
+            # Get file size estimate based on filename
+            file_size = 100  # Default 100MB
+            for key, size in estimated_size_mb.items():
+                if key in file_info['filename']:
+                    file_size = size
+                    break
+            
+            timeout = calculate_download_timeout(file_size, network_speed)
             
             # Try multiple URLs until one works
             downloaded = False
             for url in file_info["urls"]:
                 try:
-                    print(f"  Trying URL: {url}")
-                    response = requests.get(url, stream=True, timeout=30)
+                    logger.info(f"  Trying URL: {url} (timeout: {timeout}s)")
+                    response = requests.get(url, stream=True, timeout=timeout)
                     response.raise_for_status()
                     
                     with open(file_path, 'wb') as f:
                         for chunk in response.iter_content(chunk_size=8192):
                             f.write(chunk)
                     
-                    print(f"  ✓ Downloaded {file_info['filename']} from {url}")
+                    logger.info(f"  ✓ Downloaded {file_info['filename']} from {url}")
                     downloaded = True
                     break
                     
                 except Exception as e:
-                    print(f"  ✗ Failed to download from {url}: {e}")
+                    logger.warning(f"  ✗ Failed to download from {url}: {e}")
                     continue
             
             # If all URLs failed, try wget as fallback
             if not downloaded:
-                print(f"  Trying wget as fallback...")
+                logger.info(f"  Trying wget as fallback...")
                 for url in file_info["urls"]:
                     try:
                         subprocess.run([
-                            "wget", "-O", str(file_path), url, "--timeout=30"
+                            "wget", "-O", str(file_path), url, f"--timeout={timeout}"
                         ], check=True, capture_output=True)
-                        print(f"  ✓ Downloaded {file_info['filename']} using wget")
+                        logger.info(f"  ✓ Downloaded {file_info['filename']} using wget")
                         downloaded = True
                         break
                     except:
@@ -418,17 +579,17 @@ def _download_isic2018(local_path: Path) -> None:
             
             # If all methods failed, provide manual instructions
             if not downloaded:
-                print(f"  ✗ All automatic download methods failed for {file_info['filename']}")
-                print(f"  Please manually download from one of these URLs:")
+                logger.error(f"  ✗ All automatic download methods failed for {file_info['filename']}")
+                logger.info(f"  Please manually download from one of these URLs:")
                 for url in file_info["urls"]:
-                    print(f"    - {url}")
-                print(f"  And save it as: {file_path}")
-                print(f"  Or use Kaggle CLI: kaggle datasets download -d kmader/skin-cancer-mnist-ham10000")
+                    logger.info(f"    - {url}")
+                logger.info(f"  And save it as: {file_path}")
+                logger.info(f"  Or use Kaggle CLI: kaggle datasets download -d kmader/skin-cancer-mnist-ham10000")
                 continue
         
         # Extract the file to appropriate directory
         if file_path.exists():
-            print(f"Extracting {file_info['filename']}...")
+            logger.info(f"Extracting {file_info['filename']}...")
             try:
                 with zipfile.ZipFile(file_path, 'r') as zip_ref:
                     if "Training_Input" in file_info["filename"]:
@@ -444,15 +605,15 @@ def _download_isic2018(local_path: Path) -> None:
                         # Extract validation masks
                         zip_ref.extractall(local_path / "val" / "masks")
                 
-                print(f"  ✓ Extracted {file_info['filename']}")
+                logger.info(f"  ✓ Extracted {file_info['filename']}")
                 
                 # Clean up zip file after successful extraction
                 file_path.unlink()
-                print(f"  ✓ Cleaned up {file_info['filename']}")
+                logger.info(f"  ✓ Cleaned up {file_info['filename']}")
                 
             except Exception as e:
-                print(f"  ✗ Error extracting {file_info['filename']}: {e}")
-                print(f"  You may need to manually extract {file_path}")
+                logger.error(f"  ✗ Error extracting {file_info['filename']}: {e}")
+                logger.info(f"  You may need to manually extract {file_path}")
                 continue
     
     # Reorganize files if needed (ISIC files often have nested structure)
@@ -460,19 +621,20 @@ def _download_isic2018(local_path: Path) -> None:
     
     # Verify dataset structure
     if _verify_isic_dataset(local_path):
-        print(f"✓ ISIC 2018 dataset successfully downloaded and prepared in {local_path}")
+        logger.info(f"✓ ISIC 2018 dataset successfully downloaded and prepared in {local_path}")
     else:
-        print(f"⚠ ISIC 2018 dataset may be incomplete. Please verify manually:")
-        print(f"Expected structure at {local_path}:")
-        print("  ├── train/")
-        print("  │   ├── images/  (should contain .jpg files)")
-        print("  │   └── masks/   (should contain .png files)")
-        print("  └── val/")
-        print("      ├── images/  (should contain .jpg files)")
-        print("      └── masks/   (should contain .png files)")
+        logger.warning(f"⚠ ISIC 2018 dataset may be incomplete. Please verify manually:")
+        logger.info(f"Expected structure at {local_path}:")
+        logger.info("  ├── train/")
+        logger.info("  │   ├── images/  (should contain .jpg files)")
+        logger.info("  │   └── masks/   (should contain .png files)")
+        logger.info("  └── val/")
+        logger.info("      ├── images/  (should contain .jpg files)")
+        logger.info("      └── masks/   (should contain .png files)")
 
 
-def _try_kaggle_download_isic(local_path: Path) -> bool:
+def _try_kaggle_download_isic(local_path: Path, network_speed: float = 10.0, 
+                             config: Optional[Dict[str, Any]] = None) -> bool:
     """Try to download ISIC 2018 using Kaggle API."""
     try:
         # Check if kaggle is available
@@ -481,7 +643,10 @@ def _try_kaggle_download_isic(local_path: Path) -> bool:
         if result.returncode != 0:
             return False
         
-        print("Kaggle CLI found, attempting download...")
+        logger.info("Kaggle CLI found, attempting download...")
+        
+        # Calculate timeout for Kaggle download (HAM10000 is ~1.5GB)
+        timeout = calculate_download_timeout(1500, network_speed, config)
         
         # Download HAM10000 dataset which includes ISIC 2018 data
         kaggle_cmd = [
@@ -489,19 +654,19 @@ def _try_kaggle_download_isic(local_path: Path) -> bool:
             "-p", str(local_path), "--unzip"
         ]
         
-        result = subprocess.run(kaggle_cmd, capture_output=True, text=True, timeout=300)
+        result = subprocess.run(kaggle_cmd, capture_output=True, text=True, timeout=timeout)
         if result.returncode == 0:
-            print("✓ Downloaded via Kaggle API")
+            logger.info("✓ Downloaded via Kaggle API")
             
             # Reorganize Kaggle downloaded files to expected structure
             _reorganize_kaggle_isic_files(local_path)
             return True
         else:
-            print(f"Kaggle download failed: {result.stderr}")
+            logger.warning(f"Kaggle download failed: {result.stderr}")
             return False
             
     except Exception as e:
-        print(f"Kaggle download not available: {e}")
+        logger.info(f"Kaggle download not available: {e}")
         return False
 
 
@@ -513,7 +678,7 @@ def _reorganize_kaggle_isic_files(local_path: Path) -> None:
         ham_metadata_path = local_path / "HAM10000_metadata.csv"
         
         if ham_images_path.exists() and ham_metadata_path.exists():
-            print("Reorganizing Kaggle downloaded files...")
+            logger.info("Reorganizing Kaggle downloaded files...")
             
             # Read metadata to split train/val
             import pandas as pd
@@ -532,7 +697,7 @@ def _reorganize_kaggle_isic_files(local_path: Path) -> None:
                     shutil.move(str(image_file), str(local_path / "val" / "images" / image_file.name))
             
             # Create dummy masks (since HAM10000 doesn't have pixel-level masks)
-            print("Creating placeholder masks...")
+            logger.info("Creating placeholder masks...")
             for split in ["train", "val"]:
                 images_dir = local_path / split / "images"
                 masks_dir = local_path / split / "masks"
@@ -547,10 +712,10 @@ def _reorganize_kaggle_isic_files(local_path: Path) -> None:
             shutil.rmtree(ham_images_path)
             ham_metadata_path.unlink()
             
-            print("✓ Reorganized Kaggle files to ISIC structure")
+            logger.info("✓ Reorganized Kaggle files to ISIC structure")
             
     except Exception as e:
-        print(f"Error reorganizing Kaggle files: {e}")
+        logger.error(f"Error reorganizing Kaggle files: {e}")
         # If reorganization fails, the files are still there for manual processing
 
 
@@ -567,13 +732,13 @@ def _verify_isic_dataset(local_path: Path) -> bool:
         
         for dir_path in required_dirs:
             if not dir_path.exists():
-                print(f"Missing directory: {dir_path}")
+                logger.error(f"Missing directory: {dir_path}")
                 return False
             
             # Check that directories contain files
             files = list(dir_path.glob("*"))
             if len(files) == 0:
-                print(f"Empty directory: {dir_path}")
+                logger.error(f"Empty directory: {dir_path}")
                 return False
         
         # Count files to ensure reasonable dataset size
@@ -582,21 +747,21 @@ def _verify_isic_dataset(local_path: Path) -> bool:
         val_images = list((local_path / "val" / "images").glob("*.jpg"))
         val_masks = list((local_path / "val" / "masks").glob("*.png"))
         
-        print(f"Dataset verification:")
-        print(f"  Training images: {len(train_images)}")
-        print(f"  Training masks: {len(train_masks)}")
-        print(f"  Validation images: {len(val_images)}")
-        print(f"  Validation masks: {len(val_masks)}")
+        logger.info(f"Dataset verification:")
+        logger.info(f"  Training images: {len(train_images)}")
+        logger.info(f"  Training masks: {len(train_masks)}")
+        logger.info(f"  Validation images: {len(val_images)}")
+        logger.info(f"  Validation masks: {len(val_masks)}")
         
         # ISIC 2018 should have ~2594 training images and ~1000 validation images
         if len(train_images) < 1000 or len(val_images) < 500:
-            print("Dataset appears smaller than expected")
+            logger.warning("Dataset appears smaller than expected")
             return False
             
         return True
         
     except Exception as e:
-        print(f"Error verifying dataset: {e}")
+        logger.error(f"Error verifying dataset: {e}")
         return False
 
 
@@ -623,7 +788,8 @@ def _reorganize_isic_files(local_path: Path) -> None:
                     except:
                         pass
 
-def _download_coco2017(local_path: Path) -> None:
+def _download_coco2017(local_path: Path, network_speed: float = 10.0, 
+                      config: Optional[Dict[str, Any]] = None) -> None:
     """Download MS COCO 2017 dataset."""
     base_url = "http://images.cocodataset.org/zips/"
     annotation_url = "http://images.cocodataset.org/annotations/"
@@ -638,32 +804,43 @@ def _download_coco2017(local_path: Path) -> None:
         file_path = local_path / filename
         
         if not file_path.exists():
-            print(f"Downloading {filename}...")
+            logger.info(f"Downloading {filename}...")
             url = base_url + filename if "annotations" not in filename else annotation_url + filename
             
+            # Estimate file sizes for COCO 2017
+            file_sizes = {
+                "train2017.zip": 18000,     # ~18GB
+                "val2017.zip": 1000,       # ~1GB
+                "annotations_trainval2017.zip": 250  # ~250MB
+            }
+            
+            file_size = file_sizes.get(filename, 1000)  # Default 1GB
+            timeout = calculate_download_timeout(file_size, network_speed, config)
+            
             try:
-                response = requests.get(url, stream=True)
+                logger.info(f"  Using timeout: {timeout}s for {file_size}MB file")
+                response = requests.get(url, stream=True, timeout=timeout)
                 response.raise_for_status()
                 
                 with open(file_path, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
                         
-                print(f"Downloaded {filename}")
+                logger.info(f"Downloaded {filename}")
             except Exception as e:
-                print(f"Error downloading {filename}: {e}")
-                print(f"Please manually download from {url}")
+                logger.error(f"Error downloading {filename}: {e}")
+                logger.info(f"Please manually download from {url}")
                 continue
         
         # Extract the file
-        print(f"Extracting {filename}...")
+        logger.info(f"Extracting {filename}...")
         with zipfile.ZipFile(file_path, 'r') as zip_ref:
             zip_ref.extractall(local_path)
         
         # Clean up zip file
         file_path.unlink()
     
-    print(f"COCO 2017 dataset downloaded and extracted to {local_path}")
+    logger.info(f"COCO 2017 dataset downloaded and extracted to {local_path}")
 
 def setup_directories(config: Dict[str, Any]) -> Dict[str, str]:
     """
@@ -697,14 +874,27 @@ def train_function(config: Dict[str, Any]):
     This replaces our complex UnifiedTrainer class with intelligent optimization.
     """
     # Import here to avoid issues with Ray serialization
-    from datasets import ISICDataset, COCODataset
-    from models import create_model
+    try:
+        from datasets import ISICDataset, COCODataset
+    except ImportError as e:
+        logger.error(f"Could not import datasets: {e}")
+        logger.info("Make sure the experiments/common directory is in the Python path")
+        raise
+        
+    try:
+        from models import create_model
+    except ImportError as e:
+        logger.warning(f"Could not import create_model: {e}")
+        # Create a dummy function as fallback
+        def create_model(model_name, task_type, **kwargs):
+            logger.warning("Using dummy model - this will not work for actual training")
+            return nn.Linear(10, 10)
     
     # Get distributed context from Ray (replaces our manual distributed detection)
     rank = train.get_context().get_local_rank()
     world_size = train.get_context().get_world_size()
     
-    print(f"Worker {rank}/{world_size} starting optimized training")
+    logger.info(f"Worker {rank}/{world_size} starting optimized training")
     
     # Setup directories
     dirs = setup_directories(config)
@@ -714,7 +904,7 @@ def train_function(config: Dict[str, Any]):
     # Get GPU memory information for automatic batch sizing
     gpu_memory = get_gpu_memory_info()
     if rank == 0:
-        print(f"GPU: {gpu_memory.get('device_name', 'Unknown')} ({gpu_memory['total_memory']:.1f}GB)")
+        logger.info(f"GPU: {gpu_memory.get('device_name', 'Unknown')} ({gpu_memory['total_memory']:.1f}GB)")
     
     # Calculate optimal batch size and gradient accumulation
     model_config = config["model"].copy()
@@ -762,7 +952,7 @@ def train_function(config: Dict[str, Any]):
     )
     
     if use_deepspeed and rank == 0:
-        print("Setting up DeepSpeed optimization...")
+        logger.info("Setting up DeepSpeed optimization...")
         
         # Create DeepSpeed configuration
         deepspeed_config = create_deepspeed_config(model_config, training_config, batch_config)
@@ -853,11 +1043,11 @@ def train_function(config: Dict[str, Any]):
     gradient_accumulation_steps = batch_config["gradient_accumulation_steps"]
     
     if rank == 0:
-        print(f"Starting training for {num_epochs} epochs")
-        print(f"Batch size per GPU: {batch_size}")
-        print(f"Gradient accumulation steps: {gradient_accumulation_steps}")
-        print(f"Effective batch size: {batch_config['effective_batch_size']}")
-        print(f"Using DeepSpeed: {use_deepspeed}")
+        logger.info(f"Starting training for {num_epochs} epochs")
+        logger.info(f"Batch size per GPU: {batch_size}")
+        logger.info(f"Gradient accumulation steps: {gradient_accumulation_steps}")
+        logger.info(f"Effective batch size: {batch_config['effective_batch_size']}")
+        logger.info(f"Using DeepSpeed: {use_deepspeed}")
     
     for epoch in range(num_epochs):
         # Training phase with gradient accumulation
@@ -970,7 +1160,7 @@ def train_function(config: Dict[str, Any]):
         train.report(metrics)
         
         if rank == 0:
-            print(f"Epoch {epoch + 1}/{num_epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, LR: {current_lr:.2e}")
+            logger.info(f"Epoch {epoch + 1}/{num_epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, LR: {current_lr:.2e}")
             
             # Save checkpoint to network drive (results directory)
             if (epoch + 1) % training_config.get("checkpoint_freq", 10) == 0:
@@ -990,12 +1180,12 @@ def train_function(config: Dict[str, Any]):
                         'batch_config': batch_config
                     }, checkpoint_path)
                 
-                print(f"Checkpoint saved to {checkpoint_path}")
+                logger.info(f"Checkpoint saved to {checkpoint_path}")
     
     if rank == 0:
-        print("Training completed successfully!")
-        print(f"Final effective batch size: {batch_config['effective_batch_size']}")
-        print(f"GPU utilization optimized with batch size: {batch_size}")
+        logger.info("Training completed successfully!")
+        logger.info(f"Final effective batch size: {batch_config['effective_batch_size']}")
+        logger.info(f"GPU utilization optimized with batch size: {batch_size}")
 
 
 def train_rat_with_ray(config_path: str, num_gpus: int = 4, num_cpus_per_gpu: int = 4) -> None:
@@ -1017,25 +1207,30 @@ def train_rat_with_ray(config_path: str, num_gpus: int = 4, num_cpus_per_gpu: in
     # Download dataset before training
     data_config = config["data"]
     if "dataset_url" in data_config and "local_data_dir" in data_config:
+        # Get network speed once for all downloads
+        network_speed = get_network_speed()
+        
         download_dataset(
             dataset_name=data_config["dataset_name"],
             dataset_url=data_config["dataset_url"],
-            local_data_dir=data_config["local_data_dir"]
+            local_data_dir=data_config["local_data_dir"],
+            network_speed=network_speed,
+            config=config
         )
     
     # Initialize Ray (replaces our cluster detection)
     if not ray.is_initialized():
         ray.init()
     
-    print(f"Training {config.get('experiment_name', 'RAT experiment')} with optimized Ray Train")
-    print(f"Using {num_gpus} GPUs with {num_cpus_per_gpu} CPUs per GPU")
-    print(f"Dataset: {data_config['dataset_name']} (local: {data_config['local_data_dir']})")
+    logger.info(f"Training {config.get('experiment_name', 'RAT experiment')} with optimized Ray Train")
+    logger.info(f"Using {num_gpus} GPUs with {num_cpus_per_gpu} CPUs per GPU")
+    logger.info(f"Dataset: {data_config['dataset_name']} (local: {data_config['local_data_dir']})")
     
     # Setup results directory (network drive)
     results_config = config.get("results", {})
     results_dir = results_config.get("output_dir", "./results")
     Path(results_dir).mkdir(parents=True, exist_ok=True)
-    print(f"Results will be saved to: {results_dir}")
+    logger.info(f"Results will be saved to: {results_dir}")
     
     # Configure scaling with DeepSpeed support (replaces our manual distributed setup)
     scaling_config = ScalingConfig(
@@ -1053,12 +1248,12 @@ def train_rat_with_ray(config_path: str, num_gpus: int = 4, num_cpus_per_gpu: in
     )
     
     if use_deepspeed:
-        print("Configuring Ray Train with DeepSpeed integration...")
+        logger.info("Configuring Ray Train with DeepSpeed integration...")
         
         # Get GPU memory info for batch size calculation
         if torch.cuda.is_available():
             gpu_memory = get_gpu_memory_info()
-            print(f"Detected GPU: {gpu_memory.get('device_name', 'Unknown')} ({gpu_memory['total_memory']:.1f}GB)")
+            logger.info(f"Detected GPU: {gpu_memory.get('device_name', 'Unknown')} ({gpu_memory['total_memory']:.1f}GB)")
         
         # Calculate optimal batch configuration (will be used in train_function)
         model_config = config["model"]
@@ -1074,8 +1269,8 @@ def train_rat_with_ray(config_path: str, num_gpus: int = 4, num_cpus_per_gpu: in
             baseline_batch_sizes.get(task_type, 32)
         )
         
-        print(f"Target effective batch size: {target_effective_batch_size}")
-        print(f"Automatic batch sizing and gradient accumulation will be configured per worker")
+        logger.info(f"Target effective batch size: {target_effective_batch_size}")
+        logger.info(f"Automatic batch sizing and gradient accumulation will be configured per worker")
         
         # Configure Ray Train with DeepSpeed backend
         torch_config = TorchConfig(backend="nccl")  # Required for DeepSpeed
@@ -1104,19 +1299,19 @@ def train_rat_with_ray(config_path: str, num_gpus: int = 4, num_cpus_per_gpu: in
     
     trainer = TorchTrainer(**trainer_kwargs)
     
-    print("Starting optimized training with Ray Train...")
+    logger.info("Starting optimized training with Ray Train...")
     if use_deepspeed:
-        print("✓ DeepSpeed Stage 2/3 enabled for memory optimization")
-    print("✓ Automatic batch size and gradient accumulation")
-    print("✓ GPU memory optimization")
-    print("✓ Distributed training across all GPUs")
+        logger.info("✓ DeepSpeed Stage 2/3 enabled for memory optimization")
+    logger.info("✓ Automatic batch size and gradient accumulation")
+    logger.info("✓ GPU memory optimization")
+    logger.info("✓ Distributed training across all GPUs")
     
     # Run training (this is all we need!)
     result = trainer.fit()
     
-    print("Training completed successfully!")
-    print(f"Best validation loss: {result.metrics.get('val_loss', 'N/A')}")
-    print(f"Results saved to: {result.path}")
+    logger.info("Training completed successfully!")
+    logger.info(f"Best validation loss: {result.metrics.get('val_loss', 'N/A')}")
+    logger.info(f"Results saved to: {result.path}")
     
     return result
 

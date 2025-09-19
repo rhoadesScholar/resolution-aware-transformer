@@ -83,8 +83,8 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Evaluating model: {args.model_path}")
-    print(f"Device: {device}")
+    logger.info(f"Evaluating model: {args.model_path}")
+    logger.info(f"Device: {device}")
 
     # Load dataset
     data_dir = args.data_dir or config["data"]["data_dir"]
@@ -104,7 +104,7 @@ def main():
         pin_memory=True,
     )
 
-    print(f"Dataset: {len(dataset)} samples")
+    logger.info(f"Dataset: {len(dataset)} samples")
 
     # Load model
     model_config = config["model"].copy()
@@ -115,13 +115,13 @@ def main():
     )
     model = model.to(device)
 
-    print(
+    logger.info(
         f"Model parameters: "
         f"{sum(p.numel() for p in model.parameters() if p.requires_grad):,}"
     )
 
     # Evaluate
-    print("Running evaluation...")
+    logger.info("Running evaluation...")
     metrics = evaluate_model(
         model, dataloader, device, config["model"].get("multi_scale", False)
     )
@@ -134,22 +134,22 @@ def main():
     iou_improvement = calculate_improvement(metrics["iou"], baseline_iou)
 
     # Print results
-    print("\n" + "=" * 50)
-    print("EVALUATION RESULTS")
-    print("=" * 50)
-    print(f"Dice Coefficient: {metrics['dice']:.4f} ± {metrics.get('dice_std', 0):.4f}")
-    print(f"IoU Score:        {metrics['iou']:.4f} ± {metrics.get('iou_std', 0):.4f}")
-    print(f"Sensitivity:      {metrics['sensitivity']:.4f}")
-    print(f"Specificity:      {metrics['specificity']:.4f}")
-    print()
-    print("COMPARISON TO BASELINE (U-Net):")
-    print(f"Dice improvement: {dice_improvement:+.2f}%")
-    print(f"IoU improvement:  {iou_improvement:+.2f}%")
-    print()
+    logger.info("\n" + "=" * 50)
+    logger.info("EVALUATION RESULTS")
+    logger.info("=" * 50)
+    logger.info(f"Dice Coefficient: {metrics['dice']:.4f} ± {metrics.get('dice_std', 0):.4f}")
+    logger.info(f"IoU Score:        {metrics['iou']:.4f} ± {metrics.get('iou_std', 0):.4f}")
+    logger.info(f"Sensitivity:      {metrics['sensitivity']:.4f}")
+    logger.info(f"Specificity:      {metrics['specificity']:.4f}")
+    logger.info()
+    logger.info("COMPARISON TO BASELINE (U-Net):")
+    logger.info(f"Dice improvement: {dice_improvement:+.2f}%")
+    logger.info(f"IoU improvement:  {iou_improvement:+.2f}%")
+    logger.info()
 
     # Benchmark if requested
     if args.benchmark:
-        print("Running speed/memory benchmarks...")
+        logger.info("Running speed/memory benchmarks...")
 
         # Create sample input
         if config["model"].get("multi_scale", False):
@@ -164,14 +164,14 @@ def main():
 
         benchmark_results = benchmark_model(model, sample_input)
 
-        print("BENCHMARK RESULTS:")
-        print(
+        logger.info("BENCHMARK RESULTS:")
+        logger.info(
             f"Inference time:   "
             f"{benchmark_results['avg_inference_time']*1000:.2f} ± "
             f"{benchmark_results['std_inference_time']*1000:.2f} ms"
         )
-        print(f"Throughput:       {benchmark_results['throughput_fps']:.2f} FPS")
-        print(f"Peak memory:      {benchmark_results['peak_memory_mb']:.2f} MB")
+        logger.info(f"Throughput:       {benchmark_results['throughput_fps']:.2f} FPS")
+        logger.info(f"Peak memory:      {benchmark_results['peak_memory_mb']:.2f} MB")
 
     # Save detailed results
     detailed_results = {
@@ -194,7 +194,7 @@ def main():
     with open(output_dir / "evaluation_results.json", "w") as f:
         json.dump(detailed_results, f, indent=2)
 
-    print(f"\nDetailed results saved to: {output_dir / 'evaluation_results.json'}")
+    logger.info(f"\nDetailed results saved to: {output_dir / 'evaluation_results.json'}")
 
 
 if __name__ == "__main__":

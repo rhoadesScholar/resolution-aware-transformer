@@ -186,14 +186,24 @@ Based on architectural design principles and preliminary testing:
 ### ISIC 2018 Skin Lesion Segmentation
 - **Source**: https://challenge.isic-archive.com/data
 - **Size**: 2,594 training images, 100 validation images
+- **Download**: **Automatic** - Dataset is automatically downloaded to local storage
+- **Fallback**: Kaggle API (`kaggle datasets download -d kmader/skin-cancer-mnist-ham10000`)
 - **Preprocessing**: Resize to target resolution, normalize to [0,1], data augmentation
 - **Splits**: 80% train, 20% validation
+- **Local Storage**: `/tmp/datasets/isic2018/` (for fast training access)
 
 ### MS COCO 2017 Object Detection
 - **Source**: https://cocodataset.org/#download
 - **Size**: 118,287 training images, 5,000 validation images
+- **Download**: **Automatic** - Dataset is automatically downloaded to local storage
 - **Preprocessing**: Multi-scale resize, normalize, standard COCO augmentations
 - **Focus**: Small object detection performance (area < 32²)
+- **Local Storage**: `/tmp/datasets/coco2017/` (for fast training access)
+
+### Storage Architecture
+- **Local Data**: Datasets downloaded to `/tmp/datasets/` for optimal I/O performance
+- **Network Results**: Checkpoints, logs, and results saved to `./results/` (persistent with repo)
+- **Smart Caching**: Automatically checks for existing datasets to avoid re-downloading
 
 ## Citations
 

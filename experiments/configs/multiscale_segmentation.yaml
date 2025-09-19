@@ -1,5 +1,8 @@
 # Multi-Scale Segmentation Experiment Configuration - ISIC 2018
 # Run with: python ray_train.py --config configs/multiscale_segmentation.yaml --num-gpus 4
+#
+# This experiment tests multi-scale processing with automatically downloaded ISIC 2018 dataset.
+# For faster download, install Kaggle CLI: pip install kaggle
 
 # Experiment metadata
 experiment_name: "rat_multiscale_segmentation_isic2018"

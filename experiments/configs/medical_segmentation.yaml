@@ -1,5 +1,9 @@
 # Medical Segmentation Experiment Configuration - ISIC 2018
 # Run with: python ray_train.py --config configs/medical_segmentation.yaml --num-gpus 4
+# 
+# ISIC 2018 dataset will be automatically downloaded to local storage.
+# For faster download, install Kaggle CLI: pip install kaggle
+# And configure: kaggle config set -n path -v ~/.kaggle/kaggle.json
 
 # Experiment metadata
 experiment_name: "rat_medical_segmentation_isic2018"

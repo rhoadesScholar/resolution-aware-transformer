@@ -24,7 +24,7 @@ import fcntl
 try:
     import speedtest
     SPEEDTEST_AVAILABLE = True
-except ImportError:
+except Exception:
     SPEEDTEST_AVAILABLE = False
 
 # Ray Train imports

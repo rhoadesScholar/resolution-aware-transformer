@@ -1,4 +1,10 @@
-"""Optimized RAT training using Ray Train with DeepSpeed and automatic batch sizing."""
+"""
+This module provides an optimized pipeline for RAT (Robust Attention Transformer) model training,
+leveraging Ray Train for distributed training and DeepSpeed for efficient memory management and scaling.
+It includes automatic batch sizing based on GPU memory, dataset downloading utilities, and configuration
+helpers for both Ray and DeepSpeed. The module is designed to facilitate large-scale experiments with
+minimal manual intervention, supporting both 2D and 3D data, and integrating with common datasets such as ISIC.
+"""
 
 import os
 import sys

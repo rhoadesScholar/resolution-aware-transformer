@@ -65,7 +65,7 @@ def get_gpu_memory_info() -> Dict[str, float]:
             "available_memory": available_memory,
             "device_name": gpu_props.name
         }
-    except Exception as e:
+    except (torch.cuda.CudaError, RuntimeError) as e:
         print(f"Warning: Could not get GPU memory info: {e}")
         return {"total_memory": 8.0, "available_memory": 6.0}
 

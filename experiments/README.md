@@ -6,23 +6,64 @@ This directory contains the experimental validation of the Resolution Aware Tran
 
 ### Prerequisites
 ```bash
-pip install ray[train]
+pip install ray[train] requests
 ```
 
-### Basic Usage
+### Available Experiments
+
+Each experiment has its own configuration file with automatic dataset downloading:
+
+#### 1. Medical Image Segmentation (ISIC 2018)
 ```bash
-# Medical image segmentation
-python ray_train.py --config configs/ray_template.yaml --num-gpus 4
+# Single-scale segmentation
+python ray_train.py --config configs/medical_segmentation.yaml --num-gpus 4
 
-# Multi-GPU training
-python ray_train.py --config configs/ray_template.yaml --num-gpus 8
+# Multi-scale segmentation  
+python ray_train.py --config configs/multiscale_segmentation.yaml --num-gpus 4
 ```
+
+#### 2. Object Detection (MS COCO 2017)
+```bash
+# Multi-scale object detection
+python ray_train.py --config configs/object_detection.yaml --num-gpus 8
+```
+
+#### 3. Ablation Studies
+```bash
+# Component analysis studies
+python ray_train.py --config configs/ablation_studies.yaml --num-gpus 4
+```
+
+#### 4. Robustness Testing
+```bash
+# Resolution transfer evaluation
+python ray_train.py --config configs/robustness_testing.yaml --num-gpus 4
+```
+
+### Data Management
+
+**Automatic Dataset Downloading:**
+- Datasets are automatically downloaded to local storage (`/tmp/datasets/`)
+- ISIC 2018: Manual download required (instructions provided)
+- MS COCO 2017: Automatic download (~50GB)
+
+**Results Storage:**
+- Checkpoints and logs saved to `./results/` (network drive with repo)
+- Training artifacts stored locally, cleaned up after completion
+- Best models and evaluation metrics preserved in results directory
 
 ### Configuration
-Edit `configs/ray_template.yaml` to modify:
-- Dataset paths (`data.data_dir`)
-- Model parameters (`model.*`)
-- Training settings (`training.*`)
+
+Each experiment configuration specifies:
+- `local_data_dir`: Where to download/store datasets locally
+- `results.output_dir`: Where to save checkpoints and results (network drive)
+- Model parameters, training settings, evaluation metrics
+
+Example usage with custom paths:
+```bash
+# Edit config file to specify custom paths
+python ray_train.py --config configs/medical_segmentation.yaml --num-gpus 4
+```
 
 ---
 

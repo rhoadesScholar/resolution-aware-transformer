@@ -1,0 +1,66 @@
+# Medical Segmentation Experiment Configuration - ISIC 2018
+# Run with: python ray_train.py --config configs/medical_segmentation.yaml --num-gpus 4
+
+# Experiment metadata
+experiment_name: "rat_medical_segmentation_isic2018"
+description: "Resolution Aware Transformer for ISIC 2018 skin lesion segmentation"
+task_type: "segmentation"
+
+# Random seed for reproducibility
+seed: 42
+
+# Dataset configuration
+data:
+  dataset_name: "isic2018"
+  dataset_url: "https://challenge.isic-archive.com/data/"
+  local_data_dir: "/tmp/datasets/isic2018"  # Local storage for datasets
+  image_size: 256
+  num_workers: 4
+  train_split: "train"
+  val_split: "val"
+  
+  # Data augmentation
+  augmentation:
+    random_flip: 0.5
+    random_rotation: 15
+    color_jitter: 0.1
+    normalize:
+      mean: [0.485, 0.456, 0.406]
+      std: [0.229, 0.224, 0.225]
+
+# Model configuration
+model:
+  name: "rat"
+  spatial_dims: 2
+  input_features: 3
+  feature_dims: 128
+  num_blocks: 4
+  num_heads: 8
+  attention_type: "dense"
+  multi_scale: false  # Set to true for multi-scale experiments
+  learnable_rose: true
+  mlp_ratio: 4
+  mlp_dropout: 0.1
+
+# Training configuration
+training:
+  epochs: 100
+  batch_size: 8
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  scheduler: "cosine"
+  loss: "combined"  # BCE + Dice loss for segmentation
+  grad_clip: 1.0
+  mixed_precision: true
+
+# Results and logging (saved to network drive with repo)
+results:
+  output_dir: "./results/medical_segmentation"  # Network drive path
+  save_checkpoints: true
+  checkpoint_freq: 10
+  log_freq: 100
+
+# Evaluation metrics
+evaluation:
+  metrics: ["dice", "iou", "sensitivity", "specificity"]
+  eval_freq: 5

@@ -53,13 +53,20 @@ model:
 # Training configuration
 training:
   epochs: 150
-  batch_size: 4  # Smaller batch size for detection
+  # Batch size will be automatically optimized based on GPU memory
+  # Set target_effective_batch_size to match baseline papers  
+  target_effective_batch_size: 16  # COCO detection baseline effective batch size
   learning_rate: 1e-4
   weight_decay: 1e-4
   scheduler: "cosine"
   warmup_epochs: 10
   grad_clip: 0.1
   mixed_precision: true
+  use_deepspeed: true  # Enable DeepSpeed Stage 2/3 for memory optimization
+  
+  # Automatic optimization features
+  auto_batch_size: true  # Calculate optimal batch size based on GPU memory
+  gradient_accumulation: "auto"  # Automatically set to achieve target_effective_batch_size
 
 # Results and logging (saved to network drive with repo)
 results:

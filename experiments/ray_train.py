@@ -1,4 +1,4 @@
-"""Simplified RAT training using Ray Train with dataset downloading."""
+"""Optimized RAT training using Ray Train with DeepSpeed and automatic batch sizing."""
 
 import os
 import sys
@@ -10,6 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Dict, Any, Optional
 import logging
+import math
 
 # Ray Train imports
 try:
@@ -21,6 +22,14 @@ try:
 except ImportError:
     RAY_AVAILABLE = False
 
+# DeepSpeed integration
+try:
+    import deepspeed
+    from ray.train.torch import TorchConfig
+    DEEPSPEED_AVAILABLE = True
+except ImportError:
+    DEEPSPEED_AVAILABLE = False
+
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -29,6 +38,227 @@ import yaml
 # Add experiments directory to path
 EXPERIMENTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(EXPERIMENTS_DIR / "common"))
+
+
+def get_gpu_memory_info() -> Dict[str, float]:
+    """Get GPU memory information for automatic batch sizing."""
+    if not torch.cuda.is_available():
+        return {"total_memory": 8.0, "available_memory": 6.0}  # Default CPU fallback
+    
+    try:
+        # Get GPU properties
+        device = torch.cuda.current_device()
+        gpu_props = torch.cuda.get_device_properties(device)
+        total_memory = gpu_props.total_memory / (1024**3)  # Convert to GB
+        
+        # Estimate available memory (conservative estimate)
+        available_memory = total_memory * 0.85  # Reserve 15% for overhead
+        
+        return {
+            "total_memory": total_memory,
+            "available_memory": available_memory,
+            "device_name": gpu_props.name
+        }
+    except Exception as e:
+        print(f"Warning: Could not get GPU memory info: {e}")
+        return {"total_memory": 8.0, "available_memory": 6.0}
+
+
+def estimate_model_memory(model_config: Dict[str, Any], spatial_dims: int = 2) -> float:
+    """
+    Estimate model memory usage in GB based on configuration.
+    
+    Args:
+        model_config: Model configuration dictionary
+        spatial_dims: Number of spatial dimensions (2 or 3)
+    
+    Returns:
+        Estimated memory usage in GB
+    """
+    feature_dims = model_config.get("feature_dims", 128)
+    num_blocks = model_config.get("num_blocks", 4)
+    num_heads = model_config.get("num_heads", 8)
+    mlp_ratio = model_config.get("mlp_ratio", 4)
+    
+    # Rough estimation based on transformer architecture
+    # Each transformer block has attention + MLP
+    attention_params = feature_dims * feature_dims * 4 * num_heads  # Q, K, V, O projections
+    mlp_params = feature_dims * feature_dims * mlp_ratio * 2  # Up and down projections
+    
+    # Total parameters per block
+    params_per_block = attention_params + mlp_params
+    total_params = params_per_block * num_blocks
+    
+    # Add initial projection and positional embeddings
+    total_params += feature_dims * model_config.get("input_features", 3) * 49  # 7x7 conv
+    total_params += feature_dims * 1024  # Positional embeddings
+    
+    # Convert to memory (4 bytes per parameter for float32, plus activations)
+    param_memory = total_params * 4 / (1024**3)  # GB
+    activation_memory = param_memory * 2  # Rough estimate for activations
+    
+    # Add gradient memory for training
+    gradient_memory = param_memory
+    
+    total_memory = param_memory + activation_memory + gradient_memory
+    
+    # Add safety factor
+    return total_memory * 1.5
+
+
+def calculate_optimal_batch_size(
+    model_config: Dict[str, Any], 
+    data_config: Dict[str, Any],
+    gpu_memory: Dict[str, float],
+    target_effective_batch_size: int = 32
+) -> Dict[str, int]:
+    """
+    Calculate optimal batch size and gradient accumulation steps.
+    
+    Args:
+        model_config: Model configuration
+        data_config: Data configuration  
+        gpu_memory: GPU memory information
+        target_effective_batch_size: Target effective batch size for reproducibility
+    
+    Returns:
+        Dictionary with batch_size, gradient_accumulation_steps, and effective_batch_size
+    """
+    available_memory = gpu_memory["available_memory"]
+    
+    # Estimate model memory usage
+    model_memory = estimate_model_memory(model_config)
+    
+    # Estimate memory per sample
+    image_size = data_config.get("image_size", 256)
+    channels = model_config.get("input_features", 3)
+    spatial_dims = model_config.get("spatial_dims", 2)
+    
+    if spatial_dims == 2:
+        sample_memory = channels * image_size * image_size * 4 / (1024**3)  # 4 bytes per float32
+    else:  # 3D
+        depth = data_config.get("depth", image_size // 4)  # Assume depth is 1/4 of image size
+        sample_memory = channels * depth * image_size * image_size * 4 / (1024**3)
+    
+    # Add overhead for gradients and optimizer states
+    sample_memory *= 3  # Conservative estimate
+    
+    # Calculate maximum batch size that fits in memory
+    memory_for_batch = available_memory - model_memory
+    max_batch_size = max(1, int(memory_for_batch / sample_memory))
+    
+    # Ensure batch size is reasonable (not too large or too small)
+    max_batch_size = min(max_batch_size, 32)  # Cap at 32 per GPU
+    max_batch_size = max(max_batch_size, 1)   # At least 1
+    
+    # Calculate gradient accumulation to reach target effective batch size
+    gradient_accumulation_steps = max(1, target_effective_batch_size // max_batch_size)
+    effective_batch_size = max_batch_size * gradient_accumulation_steps
+    
+    print(f"GPU Memory: {available_memory:.1f}GB available")
+    print(f"Model Memory: {model_memory:.1f}GB estimated") 
+    print(f"Sample Memory: {sample_memory*1000:.1f}MB per sample")
+    print(f"Optimal batch size: {max_batch_size} per GPU")
+    print(f"Gradient accumulation: {gradient_accumulation_steps} steps")
+    print(f"Effective batch size: {effective_batch_size}")
+    
+    return {
+        "batch_size": max_batch_size,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
+        "effective_batch_size": effective_batch_size
+    }
+
+
+def create_deepspeed_config(
+    model_config: Dict[str, Any],
+    training_config: Dict[str, Any],
+    batch_config: Dict[str, int]
+) -> Dict[str, Any]:
+    """
+    Create DeepSpeed configuration for Ray Train integration.
+    
+    Args:
+        model_config: Model configuration
+        training_config: Training configuration
+        batch_config: Batch sizing configuration
+    
+    Returns:
+        DeepSpeed configuration dictionary
+    """
+    # Estimate if we need ZeRO stage 2 or 3 based on model size
+    model_memory = estimate_model_memory(model_config)
+    zero_stage = 3 if model_memory > 4.0 else 2  # Use stage 3 for large models
+    
+    deepspeed_config = {
+        "train_batch_size": batch_config["effective_batch_size"],
+        "train_micro_batch_size_per_gpu": batch_config["batch_size"],
+        "gradient_accumulation_steps": batch_config["gradient_accumulation_steps"],
+        
+        # ZeRO optimization
+        "zero_optimization": {
+            "stage": zero_stage,
+            "allgather_partitions": True,
+            "allgather_bucket_size": 2e8,
+            "reduce_scatter": True,
+            "reduce_bucket_size": 2e8,
+            "overlap_comm": True,
+            "contiguous_gradients": True,
+        },
+        
+        # Mixed precision
+        "fp16": {
+            "enabled": training_config.get("mixed_precision", True),
+            "auto_cast": True,
+            "loss_scale": 0,
+            "initial_scale_power": 16,
+            "loss_scale_window": 1000,
+            "hysteresis": 2,
+            "min_loss_scale": 1
+        },
+        
+        # Gradient clipping
+        "gradient_clipping": training_config.get("grad_clip", 1.0),
+        
+        # Optimizer configuration
+        "optimizer": {
+            "type": "AdamW",
+            "params": {
+                "lr": training_config.get("learning_rate", 1e-4),
+                "weight_decay": training_config.get("weight_decay", 0.01),
+                "betas": [0.9, 0.999],
+                "eps": 1e-8
+            }
+        },
+        
+        # Scheduler configuration
+        "scheduler": {
+            "type": "WarmupCosineLR",
+            "params": {
+                "total_num_steps": training_config.get("epochs", 100) * 1000,  # Estimate
+                "warmup_num_steps": 100
+            }
+        } if training_config.get("scheduler") == "cosine" else None,
+    }
+    
+    # Add CPU offloading for ZeRO stage 3
+    if zero_stage == 3:
+        deepspeed_config["zero_optimization"]["offload_optimizer"] = {
+            "device": "cpu",
+            "pin_memory": True
+        }
+        deepspeed_config["zero_optimization"]["offload_param"] = {
+            "device": "cpu",
+            "pin_memory": True
+        }
+    
+    # Remove None values
+    deepspeed_config = {k: v for k, v in deepspeed_config.items() if v is not None}
+    
+    print(f"DeepSpeed ZeRO Stage {zero_stage} configured")
+    print(f"Mixed precision: {deepspeed_config['fp16']['enabled']}")
+    
+    return deepspeed_config
+
 
 def download_dataset(dataset_name: str, dataset_url: str, local_data_dir: str) -> None:
     """
@@ -457,8 +687,8 @@ def setup_directories(config: Dict[str, Any]) -> Dict[str, str]:
 
 def train_function(config: Dict[str, Any]):
     """
-    Training function that runs on each Ray worker.
-    This replaces our complex UnifiedTrainer class.
+    Optimized training function with DeepSpeed and automatic batch sizing.
+    This replaces our complex UnifiedTrainer class with intelligent optimization.
     """
     # Import here to avoid issues with Ray serialization
     from datasets import ISICDataset, COCODataset
@@ -468,16 +698,46 @@ def train_function(config: Dict[str, Any]):
     rank = train.get_context().get_local_rank()
     world_size = train.get_context().get_world_size()
     
-    print(f"Worker {rank}/{world_size} starting training")
+    print(f"Worker {rank}/{world_size} starting optimized training")
     
     # Setup directories
     dirs = setup_directories(config)
     local_data_dir = dirs["local_data_dir"]
     results_dir = dirs["results_dir"]
     
-    # Create model based on task
-    task_type = config.get("task_type", "segmentation")
+    # Get GPU memory information for automatic batch sizing
+    gpu_memory = get_gpu_memory_info()
+    if rank == 0:
+        print(f"GPU: {gpu_memory.get('device_name', 'Unknown')} ({gpu_memory['total_memory']:.1f}GB)")
+    
+    # Calculate optimal batch size and gradient accumulation
     model_config = config["model"].copy()
+    data_config = config["data"]
+    training_config = config["training"]
+    
+    # Get target effective batch size from config or use baseline defaults
+    task_type = config.get("task_type", "segmentation")
+    baseline_batch_sizes = {
+        "segmentation": 32,  # ISIC 2018 baseline effective batch size
+        "detection": 16,     # COCO detection baseline effective batch size
+        "ablation": 32,      # Standard for ablation studies
+        "robustness": 32     # Standard for robustness testing
+    }
+    target_effective_batch_size = training_config.get(
+        "target_effective_batch_size", 
+        baseline_batch_sizes.get(task_type, 32)
+    )
+    
+    # Calculate optimal batch configuration
+    batch_config = calculate_optimal_batch_size(
+        model_config, data_config, gpu_memory, target_effective_batch_size
+    )
+    
+    # Override config batch size with optimized values
+    training_config["batch_size"] = batch_config["batch_size"]
+    training_config["gradient_accumulation_steps"] = batch_config["gradient_accumulation_steps"]
+    
+    # Create model based on task
     model_name = model_config.pop("name", "rat")
     
     # Create RAT model
@@ -488,12 +748,44 @@ def train_function(config: Dict[str, Any]):
         # Fallback for testing
         model = create_model(model_name, task_type, **model_config)
     
-    # Ray automatically handles device placement and DDP wrapping
-    model = train.torch.prepare_model(model)
+    # Setup DeepSpeed if available and beneficial
+    use_deepspeed = (
+        DEEPSPEED_AVAILABLE and 
+        world_size > 1 and 
+        training_config.get("use_deepspeed", True)
+    )
+    
+    if use_deepspeed and rank == 0:
+        print("Setting up DeepSpeed optimization...")
+        
+        # Create DeepSpeed configuration
+        deepspeed_config = create_deepspeed_config(model_config, training_config, batch_config)
+        
+        # Initialize DeepSpeed engine
+        model_engine, optimizer, _, scheduler = deepspeed.initialize(
+            model=model,
+            config=deepspeed_config
+        )
+        model = model_engine
+        
+    else:
+        # Ray automatically handles device placement and DDP wrapping
+        model = train.torch.prepare_model(model)
+        
+        # Create optimizer and scheduler manually if not using DeepSpeed
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=training_config.get("learning_rate", 1e-4),
+            weight_decay=training_config.get("weight_decay", 0.01)
+        )
+        
+        scheduler = None
+        if training_config.get("scheduler") == "cosine":
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer, T_max=training_config.get("epochs", 100)
+            )
     
     # Create datasets using local data directory
-    data_config = config["data"]
-    
     if task_type == "segmentation":
         train_dataset = ISICDataset(
             data_dir=local_data_dir,
@@ -525,55 +817,50 @@ def train_function(config: Dict[str, Any]):
         # Simplified detection loss
         criterion = nn.CrossEntropyLoss()
     
-    # Create data loaders - Ray handles distributed sampling automatically
-    training_config = config["training"]
-    batch_size = training_config.get("batch_size", 4)
+    # Create data loaders with optimized batch size
+    batch_size = batch_config["batch_size"]
     
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=data_config.get("num_workers", 4),
-        pin_memory=True
+        pin_memory=True,
+        drop_last=True  # Ensure consistent batch sizes for gradient accumulation
     )
     
     val_loader = DataLoader(
         val_dataset,
-        batch_size=batch_size * 2,
+        batch_size=batch_size * 2,  # Larger batch size for validation
         shuffle=False,
         num_workers=data_config.get("num_workers", 4),
         pin_memory=True
     )
     
     # Ray prepares data loaders for distributed training
-    train_loader = train.torch.prepare_data_loader(train_loader)
-    val_loader = train.torch.prepare_data_loader(val_loader)
+    if not use_deepspeed:
+        train_loader = train.torch.prepare_data_loader(train_loader)
+        val_loader = train.torch.prepare_data_loader(val_loader)
     
-    # Create optimizer and scheduler
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=training_config.get("learning_rate", 1e-4),
-        weight_decay=training_config.get("weight_decay", 0.01)
-    )
-    
-    scheduler = None
-    if training_config.get("scheduler") == "cosine":
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=training_config.get("epochs", 100)
-        )
-    
-    # Training loop (simplified compared to our complex UnifiedTrainer)
+    # Training loop with gradient accumulation and optimization
     num_epochs = training_config.get("epochs", 100)
+    gradient_accumulation_steps = batch_config["gradient_accumulation_steps"]
+    
+    if rank == 0:
+        print(f"Starting training for {num_epochs} epochs")
+        print(f"Batch size per GPU: {batch_size}")
+        print(f"Gradient accumulation steps: {gradient_accumulation_steps}")
+        print(f"Effective batch size: {batch_config['effective_batch_size']}")
+        print(f"Using DeepSpeed: {use_deepspeed}")
     
     for epoch in range(num_epochs):
-        # Training phase
+        # Training phase with gradient accumulation
         model.train()
         train_loss = 0.0
         train_samples = 0
+        accumulated_loss = 0.0
         
         for batch_idx, batch in enumerate(train_loader):
-            optimizer.zero_grad()
-            
             # Extract inputs and targets based on task
             if task_type == "segmentation":
                 if isinstance(batch, dict):
@@ -592,20 +879,35 @@ def train_function(config: Dict[str, Any]):
             outputs = model(images)
             loss = criterion(outputs, targets)
             
+            # Scale loss by gradient accumulation steps
+            loss = loss / gradient_accumulation_steps
+            accumulated_loss += loss.item()
+            
             # Backward pass
-            loss.backward()
+            if use_deepspeed:
+                model.backward(loss)
+            else:
+                loss.backward()
             
-            # Gradient clipping
-            if training_config.get("grad_clip", 0) > 0:
-                torch.nn.utils.clip_grad_norm_(
-                    model.parameters(), training_config["grad_clip"]
-                )
+            # Update parameters every gradient_accumulation_steps
+            if (batch_idx + 1) % gradient_accumulation_steps == 0:
+                # Gradient clipping
+                if not use_deepspeed and training_config.get("grad_clip", 0) > 0:
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), training_config["grad_clip"]
+                    )
+                
+                # Optimizer step
+                if use_deepspeed:
+                    model.step()
+                else:
+                    optimizer.step()
+                    optimizer.zero_grad()
+                
+                train_loss += accumulated_loss
+                train_samples += images.size(0) * gradient_accumulation_steps
+                accumulated_loss = 0.0
             
-            optimizer.step()
-            
-            train_loss += loss.item()
-            train_samples += images.size(0)
-        
         # Validation phase
         model.eval()
         val_loss = 0.0
@@ -633,38 +935,66 @@ def train_function(config: Dict[str, Any]):
                 val_samples += images.size(0)
         
         # Update scheduler
-        if scheduler:
+        if scheduler and not use_deepspeed:
             scheduler.step()
+        elif use_deepspeed:
+            # DeepSpeed handles scheduling internally
+            pass
+        
+        # Calculate average losses
+        avg_train_loss = train_loss / max(1, len(train_loader) // gradient_accumulation_steps)
+        avg_val_loss = val_loss / len(val_loader)
+        
+        # Get current learning rate
+        if use_deepspeed:
+            current_lr = model.get_lr()[0] if hasattr(model, 'get_lr') else training_config.get("learning_rate", 1e-4)
+        else:
+            current_lr = optimizer.param_groups[0]["lr"]
         
         # Report metrics to Ray Train (replaces our manual logging)
         metrics = {
             "epoch": epoch + 1,
-            "train_loss": train_loss / len(train_loader),
-            "val_loss": val_loss / len(val_loader),
-            "learning_rate": optimizer.param_groups[0]["lr"]
+            "train_loss": avg_train_loss,
+            "val_loss": avg_val_loss,
+            "learning_rate": current_lr,
+            "effective_batch_size": batch_config["effective_batch_size"],
+            "gpu_memory_used": torch.cuda.memory_allocated() / (1024**3) if torch.cuda.is_available() else 0
         }
         
         train.report(metrics)
         
         if rank == 0:
-            print(f"Epoch {epoch + 1}/{num_epochs} - Train Loss: {metrics['train_loss']:.4f}, Val Loss: {metrics['val_loss']:.4f}")
+            print(f"Epoch {epoch + 1}/{num_epochs} - Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, LR: {current_lr:.2e}")
             
             # Save checkpoint to network drive (results directory)
             if (epoch + 1) % training_config.get("checkpoint_freq", 10) == 0:
                 checkpoint_path = Path(results_dir) / f"checkpoint_epoch_{epoch + 1}.pth"
-                torch.save({
-                    'epoch': epoch + 1,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'loss': val_loss / len(val_loader),
-                    'config': config
-                }, checkpoint_path)
+                
+                if use_deepspeed:
+                    # Save DeepSpeed checkpoint
+                    model.save_checkpoint(str(checkpoint_path.parent), tag=f"epoch_{epoch + 1}")
+                else:
+                    # Save regular PyTorch checkpoint
+                    torch.save({
+                        'epoch': epoch + 1,
+                        'model_state_dict': model.state_dict(),
+                        'optimizer_state_dict': optimizer.state_dict(),
+                        'loss': avg_val_loss,
+                        'config': config,
+                        'batch_config': batch_config
+                    }, checkpoint_path)
+                
                 print(f"Checkpoint saved to {checkpoint_path}")
+    
+    if rank == 0:
+        print("Training completed successfully!")
+        print(f"Final effective batch size: {batch_config['effective_batch_size']}")
+        print(f"GPU utilization optimized with batch size: {batch_size}")
 
 
 def train_rat_with_ray(config_path: str, num_gpus: int = 4, num_cpus_per_gpu: int = 4) -> None:
     """
-    Train RAT model using Ray Train - this replaces our entire unified framework.
+    Train RAT model using Ray Train with DeepSpeed and automatic optimization.
     
     Args:
         config_path: Path to YAML configuration file
@@ -691,7 +1021,7 @@ def train_rat_with_ray(config_path: str, num_gpus: int = 4, num_cpus_per_gpu: in
     if not ray.is_initialized():
         ray.init()
     
-    print(f"Training {config.get('experiment_name', 'RAT experiment')} with Ray Train")
+    print(f"Training {config.get('experiment_name', 'RAT experiment')} with optimized Ray Train")
     print(f"Using {num_gpus} GPUs with {num_cpus_per_gpu} CPUs per GPU")
     print(f"Dataset: {data_config['dataset_name']} (local: {data_config['local_data_dir']})")
     
@@ -701,12 +1031,48 @@ def train_rat_with_ray(config_path: str, num_gpus: int = 4, num_cpus_per_gpu: in
     Path(results_dir).mkdir(parents=True, exist_ok=True)
     print(f"Results will be saved to: {results_dir}")
     
-    # Configure scaling (replaces our manual distributed setup)
+    # Configure scaling with DeepSpeed support (replaces our manual distributed setup)
     scaling_config = ScalingConfig(
         num_workers=num_gpus,
         use_gpu=True,
         resources_per_worker={"CPU": num_cpus_per_gpu, "GPU": 1}
     )
+    
+    # Prepare torch config for DeepSpeed if applicable
+    torch_config = None
+    use_deepspeed = (
+        DEEPSPEED_AVAILABLE and 
+        num_gpus > 1 and 
+        config["training"].get("use_deepspeed", True)
+    )
+    
+    if use_deepspeed:
+        print("Configuring Ray Train with DeepSpeed integration...")
+        
+        # Get GPU memory info for batch size calculation
+        if torch.cuda.is_available():
+            gpu_memory = get_gpu_memory_info()
+            print(f"Detected GPU: {gpu_memory.get('device_name', 'Unknown')} ({gpu_memory['total_memory']:.1f}GB)")
+        
+        # Calculate optimal batch configuration (will be used in train_function)
+        model_config = config["model"]
+        task_type = config.get("task_type", "segmentation")
+        baseline_batch_sizes = {
+            "segmentation": 32,  # ISIC 2018 baseline
+            "detection": 16,     # COCO detection baseline  
+            "ablation": 32,
+            "robustness": 32
+        }
+        target_effective_batch_size = config["training"].get(
+            "target_effective_batch_size", 
+            baseline_batch_sizes.get(task_type, 32)
+        )
+        
+        print(f"Target effective batch size: {target_effective_batch_size}")
+        print(f"Automatic batch sizing and gradient accumulation will be configured per worker")
+        
+        # Configure Ray Train with DeepSpeed backend
+        torch_config = TorchConfig(backend="nccl")  # Required for DeepSpeed
     
     # Configure training run (replaces our manual experiment tracking)
     run_config = RunConfig(
@@ -719,18 +1085,30 @@ def train_rat_with_ray(config_path: str, num_gpus: int = 4, num_cpus_per_gpu: in
         )
     )
     
-    # Create Ray Train trainer (replaces our entire UnifiedTrainer class)
-    trainer = TorchTrainer(
-        train_loop_per_worker=train_function,
-        train_loop_config=config,
-        scaling_config=scaling_config,
-        run_config=run_config
-    )
+    # Create Ray Train trainer with DeepSpeed support
+    trainer_kwargs = {
+        "train_loop_per_worker": train_function,
+        "train_loop_config": config,
+        "scaling_config": scaling_config,
+        "run_config": run_config
+    }
+    
+    if torch_config:
+        trainer_kwargs["torch_config"] = torch_config
+    
+    trainer = TorchTrainer(**trainer_kwargs)
+    
+    print("Starting optimized training with Ray Train...")
+    if use_deepspeed:
+        print("✓ DeepSpeed Stage 2/3 enabled for memory optimization")
+    print("✓ Automatic batch size and gradient accumulation")
+    print("✓ GPU memory optimization")
+    print("✓ Distributed training across all GPUs")
     
     # Run training (this is all we need!)
     result = trainer.fit()
     
-    print("Training completed!")
+    print("Training completed successfully!")
     print(f"Best validation loss: {result.metrics.get('val_loss', 'N/A')}")
     print(f"Results saved to: {result.path}")
     

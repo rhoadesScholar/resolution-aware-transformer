@@ -45,13 +45,19 @@ model:
 # Training configuration (shortened for ablations)
 training:
   epochs: 20  # Shorter training for ablation studies
-  batch_size: 8
+  # Batch size will be automatically optimized based on GPU memory
+  target_effective_batch_size: 32  # Standard ablation baseline
   learning_rate: 1e-4
   weight_decay: 0.01
   scheduler: "cosine"
   loss: "combined"
   grad_clip: 1.0
   mixed_precision: true
+  use_deepspeed: true  # Enable DeepSpeed Stage 2/3 for memory optimization
+  
+  # Automatic optimization features
+  auto_batch_size: true  # Calculate optimal batch size based on GPU memory
+  gradient_accumulation: "auto"  # Automatically set to achieve target_effective_batch_size
 
 # Ablation study configurations
 ablations:

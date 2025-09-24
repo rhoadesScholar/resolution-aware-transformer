@@ -362,6 +362,7 @@ def acquire_download_lock(dataset_name: str, local_data_dir: str) -> Optional[ob
         logger.info(f"Acquired download lock for {dataset_name}")
         return lock_handle
     except (IOError, OSError):
+        lock_handle.close()
         logger.info(f"Another process is downloading {dataset_name}, waiting...")
         return None
 

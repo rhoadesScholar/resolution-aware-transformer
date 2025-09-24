@@ -1,5 +1,4 @@
-# Simplified RAT Configuration for Ray Train
-# This replaces the complex auto-optimization with Ray's built-in capabilities
+# RAT Configuration template for Ray Train
 
 # Experiment metadata
 experiment_name: "rat_ray_segmentation"

@@ -47,7 +47,7 @@ def parse_args():
 
 def run_command(cmd, cwd=None, capture_output=False):
     """Run shell command with proper error handling."""
-    logger.info(f"Running: {' '.join(cmd)}")
+    logger.debug(f"Running: {' '.join(cmd)}")
     logger.info(f"Working directory: {cwd or os.getcwd()}")
 
     try:

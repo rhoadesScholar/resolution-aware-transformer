@@ -43,6 +43,10 @@ class ResolutionAwareTransformer(torch.nn.Module):
                     (default is 1e4)
         learnable_rose: Whether to use learnable rotary spatial embeddings
                         (default is True)
+        learnable_rose_scaling: Whether to use learnable scaling factors
+                                for the rotary spatial embeddings (default is True)
+        log_rose_scaling: Whether to use log scaling for the rotary spatial embeddings
+                          (default is True)
         init_jitter_std: Standard deviation for initial jitter in the rotary
                          embeddings (default is 0.02)
         rotary_ratio: Fraction of the feature dimension to rotate
@@ -78,6 +82,8 @@ class ResolutionAwareTransformer(torch.nn.Module):
         qkv_bias: bool = True,
         base_theta: float = 1e4,
         learnable_rose: bool = True,
+        learnable_rose_scaling: bool = True,
+        log_rose_scaling: bool = True,
         init_jitter_std: float = 0.02,
         rotary_ratio: float = 0.5,
         frequency_scaling: str = "sqrt",
@@ -127,6 +133,8 @@ class ResolutionAwareTransformer(torch.nn.Module):
         self.init_jitter_std = init_jitter_std
         self.rotary_ratio = rotary_ratio
         self.frequency_scaling = frequency_scaling
+        self.learnable_rose_scaling = learnable_rose_scaling
+        self.log_rose_scaling = log_rose_scaling
         if leading_tokens > 0:
             self.leading_tokens = torch.nn.Parameter(
                 torch.rand((1, leading_tokens, feature_dims))
@@ -166,6 +174,8 @@ class ResolutionAwareTransformer(torch.nn.Module):
             "init_jitter_std": init_jitter_std,
             "rotary_ratio": rotary_ratio,
             "frequency_scaling": frequency_scaling,
+            "learnable_rose_scaling": learnable_rose_scaling,
+            "log_rose_scaling": log_rose_scaling,
             "spacing": self._default_spacing,
         }
         mr_attn_kwargs = {
@@ -181,6 +191,8 @@ class ResolutionAwareTransformer(torch.nn.Module):
             "learnable": learnable_rose,
             "init_jitter_std": init_jitter_std,
             "frequency_scaling": frequency_scaling,
+            "learnable_scale": learnable_rose_scaling,
+            "log_scale": log_rose_scaling,
             "rotary_ratio": rotary_ratio,
         }
         for n in range(num_blocks):

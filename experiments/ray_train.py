@@ -881,14 +881,7 @@ def train_function(config: Dict[str, Any]):
         logger.info("Make sure the experiments/common directory is in the Python path")
         raise
         
-    try:
-        from models import create_model
-    except ImportError as e:
-        logger.warning(f"Could not import create_model: {e}")
-        # Create a dummy function as fallback
-        def create_model(model_name, task_type, **kwargs):
-            logger.warning("Using dummy model - this will not work for actual training")
-            return nn.Linear(10, 10)
+    from models import create_model
     
     # Get distributed context from Ray (replaces our manual distributed detection)
     rank = train.get_context().get_local_rank()

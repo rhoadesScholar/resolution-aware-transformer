@@ -44,7 +44,7 @@ python ray_train.py --config configs/robustness_testing.yaml --num-gpus 4
 
 **Automatic Dataset Downloading:**
 - Datasets are automatically downloaded to local storage (`/tmp/datasets/`)
-- ISIC 2018: Manual download required (instructions provided)
+- ISIC 2018: Automatic download
 - MS COCO 2017: Automatic download (~50GB)
 
 **Results Storage:**

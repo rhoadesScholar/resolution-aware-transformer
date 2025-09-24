@@ -9,61 +9,101 @@ This directory contains the experimental validation of the Resolution Aware Tran
 pip install ray[train] requests
 ```
 
-### Available Experiments
+### Unified Experiment Pipeline
 
-Each experiment has its own configuration file with automatic dataset downloading:
+The new experiment system uses Ray Train for distributed training and evaluation with three main scripts:
 
-#### 1. Medical Image Segmentation (ISIC 2018)
+- **`run_ray_experiments.py`**: Complete experiment orchestrator (training + evaluation)
+- **`ray_train.py`**: Optimized distributed training with DeepSpeed
+- **`ray_evaluate.py`**: Comprehensive evaluation with multiple metrics
+
+### Quick Start - Complete Experiments
+
+Run full experiment suites with training and evaluation:
+
 ```bash
-# Single-scale segmentation
+# Run all experiments (recommended)
+python run_ray_experiments.py --config configs/medical_segmentation.yaml --num-gpus 4
+
+# Run specific experiments
+python run_ray_experiments.py --config configs/medical_segmentation.yaml \
+  --experiments medical_segmentation robustness_test --num-gpus 4
+
+# Quick testing mode (reduced epochs/data)
+python run_ray_experiments.py --config configs/medical_segmentation.yaml \
+  --quick --num-gpus 2
+
+# Comprehensive ablation study
+python run_ray_experiments.py --config configs/medical_segmentation.yaml \
+  --ablation-only --num-gpus 4
+```
+
+### Individual Training and Evaluation
+
+For fine-grained control, run training and evaluation separately:
+
+#### 1. Training Only
+```bash
+# Medical Image Segmentation (ISIC 2018)
 python ray_train.py --config configs/medical_segmentation.yaml --num-gpus 4
 
-# Multi-scale segmentation  
+# Object Detection (MS COCO 2017)
+python ray_train.py --config configs/object_detection.yaml --num-gpus 8
+
+# Custom configuration
 python ray_train.py --config configs/multiscale_segmentation.yaml --num-gpus 4
 ```
 
-#### 2. Object Detection (MS COCO 2017)
+#### 2. Evaluation Only
 ```bash
-# Multi-scale object detection
-python ray_train.py --config configs/object_detection.yaml --num-gpus 8
+# Standard evaluation
+python ray_evaluate.py --config configs/medical_segmentation.yaml \
+  --checkpoint results/medical_segmentation/checkpoints/best_model.pth --num-gpus 2
+
+# Robustness testing across multiple resolutions
+python ray_evaluate.py --config configs/medical_segmentation.yaml \
+  --checkpoint results/medical_segmentation/checkpoints/best_model.pth \
+  --robustness --resolutions 128 256 512 1024 --num-gpus 2
 ```
 
-#### 3. Ablation Studies
-```bash
-# Component analysis studies
-python ray_train.py --config configs/ablation_studies.yaml --num-gpus 4
-```
+### Key Features
 
-#### 4. Robustness Testing
-```bash
-# Resolution transfer evaluation
-python ray_train.py --config configs/robustness_testing.yaml --num-gpus 4
-```
+**Automatic Optimization:**
+- GPU memory-aware batch sizing
+- DeepSpeed integration for large models
+- Gradient accumulation for effective batch sizes
+- Mixed precision training (FP16)
 
-### Data Management
+**Comprehensive Evaluation:**
+- Task-specific metrics (Dice, IoU, mAP)
+- Multi-resolution robustness testing
+- Automated ablation studies
+- Baseline comparisons
 
-**Automatic Dataset Downloading:**
-- Datasets are automatically downloaded to local storage (`/tmp/datasets/`)
-- ISIC 2018: Automatic download
+**Data Management:**
+- Automatic dataset downloading to local storage (`/tmp/datasets/`)
+- ISIC 2018: Automatic download with segmentation masks
 - MS COCO 2017: Automatic download (~50GB)
+- Results saved to network drive (`./results/`)
 
-**Results Storage:**
-- Checkpoints and logs saved to `./results/` (network drive with repo)
-- Training artifacts stored locally, cleaned up after completion
-- Best models and evaluation metrics preserved in results directory
+### Available Experiment Types
+
+| Experiment | Description | Metrics | Duration |
+|------------|-------------|---------|----------|
+| `medical_segmentation` | ISIC 2018 skin lesion segmentation | Dice, IoU, Sensitivity, Specificity | 2-4 hours |
+| `object_detection` | MS COCO 2017 object detection | mAP@0.5, mAP@0.5:0.95, small object mAP | 4-8 hours |
+| `ablation_study` | Component analysis (RoSE, SGA, multi-scale) | All segmentation metrics | 8-12 hours |
+| `robustness_test` | Resolution transfer evaluation | Metrics across multiple scales | 1-2 hours |
 
 ### Configuration
 
 Each experiment configuration specifies:
-- `local_data_dir`: Where to download/store datasets locally
+- `task_type`: "segmentation" or "detection"
+- `data.local_data_dir`: Where to download/store datasets locally
 - `results.output_dir`: Where to save checkpoints and results (network drive)
-- Model parameters, training settings, evaluation metrics
-
-Example usage with custom paths:
-```bash
-# Edit config file to specify custom paths
-python ray_train.py --config configs/medical_segmentation.yaml --num-gpus 4
-```
+- `model`: Model architecture parameters
+- `training`: Training hyperparameters with automatic optimization
+- `evaluation`: Evaluation settings including robustness testing
 
 ---
 

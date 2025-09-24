@@ -24,9 +24,10 @@ The Resolution Aware Transformer (RAT) is a PyTorch implementation for multi-sca
 - **DeepSpeed Integration**: `deepspeed_*.json` configs for ZeRO optimization stages
 
 ### Multi-Experiment Coordination
-- **Orchestrator**: `experiments/run_experiments.py` - runs benchmark suites across tasks
-- **Distributed Training**: `experiments/train_distributed.py` - simplified multi-GPU coordinator
-- **Ablation Studies**: `experiments/ablations/ablation_study.py` - automated component testing
+- **Unified Pipeline**: `experiments/run_ray_experiments.py` - complete experiment orchestrator (training + evaluation)
+- **Distributed Training**: `experiments/ray_train.py` - Ray Train with DeepSpeed optimization
+- **Comprehensive Evaluation**: `experiments/ray_evaluate.py` - multi-metric evaluation with robustness testing
+
 
 ### Data Pipeline Architecture
 ```python
@@ -103,32 +104,42 @@ make format && make lint
 
 ### Experiment Execution
 ```bash
-# Run single experiment
-python experiments/medical_segmentation/train.py --config configs/rat_multiscale.yaml
-# Run full benchmark suite
-python experiments/run_experiments.py --experiments medical_seg object_det
-# Run ablation studies
-python experiments/ablations/ablation_study.py --config configs/ablation.yaml
-# Quick 2-GPU cluster test
-sbatch experiments/cluster/submit_quick_test.lsf
+# Complete experiment suite (training + evaluation)
+python experiments/run_ray_experiments.py --config configs/medical_segmentation.yaml --num-gpus 4
+
+# Individual training with Ray optimization
+python experiments/ray_train.py --config configs/medical_segmentation.yaml --num-gpus 4
+
+# Comprehensive evaluation with robustness testing
+python experiments/ray_evaluate.py --config configs/medical_segmentation.yaml \
+  --checkpoint results/checkpoints/best_model.pth --robustness --num-gpus 2
+
+# Comprehensive ablation study
+python experiments/run_ray_experiments.py --config configs/medical_segmentation.yaml --ablation-only
+
+# Quick testing mode
+python experiments/run_ray_experiments.py --config configs/medical_segmentation.yaml --quick --num-gpus 2
+
+
 ```
 
 ### Advanced Execution Patterns
 ```bash
-# Distributed training with DeepSpeed
-deepspeed --num_gpus=8 experiments/medical_segmentation/train.py \
-  --config configs/cluster_rat_multiscale.yaml \
-  --deepspeed --zero_stage=2
+# Distributed training with automatic DeepSpeed optimization
+python experiments/ray_train.py --config configs/cluster_rat_multiscale.yaml --num-gpus 8
 
-# Resume from checkpoint with specific GPU allocation
-CUDA_VISIBLE_DEVICES=0,1,2,3 python experiments/medical_segmentation/train.py \
-  --config configs/rat_multiscale.yaml \
-  --resume outputs/checkpoints/best_model.pth
+# Multi-resolution robustness evaluation
+python experiments/ray_evaluate.py --config configs/rat_multiscale.yaml \
+  --checkpoint results/checkpoints/best_model.pth \
+  --robustness --resolutions 128 256 512 1024 --num-gpus 4
 
-# Ablation study with custom experiment subset
-python experiments/ablations/ablation_study.py \
-  --experiments pe_rose attention_dense multiscale_true \
-  --epochs 10 --quick_eval
+# Custom ablation study with specific variants
+python experiments/run_ray_experiments.py --config configs/rat_multiscale.yaml \
+  --ablation-only --quick --num-gpus 4
+
+# Evaluation-only workflow for pretrained models
+python experiments/ray_evaluate.py --config configs/rat_multiscale.yaml \
+  --checkpoint pretrained/rat_model.pth --num-gpus 2
 ```
 
 ## Critical Patterns & Conventions

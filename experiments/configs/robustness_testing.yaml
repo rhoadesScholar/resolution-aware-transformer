@@ -1,0 +1,86 @@
+# Robustness Testing Configuration - Resolution Transfer
+# Run with: python ray_train.py --config configs/robustness_testing.yaml --num-gpus 4
+
+# Experiment metadata  
+experiment_name: "rat_robustness_testing"
+description: "Resolution transfer robustness evaluation for Resolution Aware Transformer"
+task_type: "robustness"
+
+# Random seed for reproducibility
+seed: 42
+
+# Dataset configuration
+data:
+  dataset_name: "isic2018"
+  dataset_url: "https://challenge.isic-archive.com/data/"
+  local_data_dir: "/tmp/datasets/isic2018"  # Local storage for datasets
+  train_resolution: 256
+  test_resolutions: [128, 256, 512, 1024]  # Test at multiple resolutions
+  num_workers: 4
+  train_split: "train"
+  val_split: "val"
+  test_split: "test"
+  
+  # Data augmentation
+  augmentation:
+    random_flip: 0.5
+    random_rotation: 15
+    color_jitter: 0.1
+    normalize:
+      mean: [0.485, 0.456, 0.406]
+      std: [0.229, 0.224, 0.225]
+
+# Model configuration
+model:
+  name: "rat"
+  spatial_dims: 2
+  input_features: 3
+  feature_dims: 128
+  num_blocks: 4
+  num_heads: 8
+  attention_type: "dense"
+  multi_scale: true  # Test multi-scale robustness
+  learnable_rose: true
+  mlp_ratio: 4
+  mlp_dropout: 0.1
+
+# Training configuration (train once, test at multiple resolutions)
+training:
+  epochs: 50  # Train a good model first
+  # Batch size will be automatically optimized based on GPU memory
+  target_effective_batch_size: 32  # Standard robustness testing baseline
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  scheduler: "cosine"
+  loss: "combined"
+  grad_clip: 1.0
+  mixed_precision: true
+  use_deepspeed: true  # Enable DeepSpeed Stage 2/3 for memory optimization
+  
+  # Automatic optimization features
+  auto_batch_size: true  # Calculate optimal batch size based on GPU memory
+  gradient_accumulation: "auto"  # Automatically set to achieve target_effective_batch_size
+
+# Robustness testing configuration
+robustness:
+  test_type: "resolution_transfer"
+  train_once: true  # Train model once, then test at multiple resolutions
+  test_resolutions: [128, 256, 512, 1024]
+  
+  # Performance degradation thresholds
+  thresholds:
+    acceptable_degradation: 0.1  # 10% performance drop acceptable
+    critical_degradation: 0.2    # 20% performance drop critical
+
+# Results and logging (saved to network drive with repo)
+results:
+  output_dir: "./results/robustness_testing"  # Network drive path
+  save_checkpoints: true
+  checkpoint_freq: 10
+  log_freq: 100
+
+# Evaluation metrics
+evaluation:
+  metrics: ["dice", "iou", "sensitivity", "specificity"]
+  eval_freq: 5
+  cross_resolution_analysis: true

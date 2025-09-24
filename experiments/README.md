@@ -2,6 +2,71 @@
 
 This directory contains the experimental validation of the Resolution Aware Transformer (RAT) architecture. Our experiments are designed to demonstrate proof-of-concept results showing the effectiveness of multi-scale processing, Rotary Spatial Embeddings (RoSE), and Spatial Grouping Attention (SGA) mechanisms.
 
+## Running Experiments
+
+### Prerequisites
+```bash
+pip install ray[train] requests
+```
+
+### Available Experiments
+
+Each experiment has its own configuration file with automatic dataset downloading:
+
+#### 1. Medical Image Segmentation (ISIC 2018)
+```bash
+# Single-scale segmentation
+python ray_train.py --config configs/medical_segmentation.yaml --num-gpus 4
+
+# Multi-scale segmentation  
+python ray_train.py --config configs/multiscale_segmentation.yaml --num-gpus 4
+```
+
+#### 2. Object Detection (MS COCO 2017)
+```bash
+# Multi-scale object detection
+python ray_train.py --config configs/object_detection.yaml --num-gpus 8
+```
+
+#### 3. Ablation Studies
+```bash
+# Component analysis studies
+python ray_train.py --config configs/ablation_studies.yaml --num-gpus 4
+```
+
+#### 4. Robustness Testing
+```bash
+# Resolution transfer evaluation
+python ray_train.py --config configs/robustness_testing.yaml --num-gpus 4
+```
+
+### Data Management
+
+**Automatic Dataset Downloading:**
+- Datasets are automatically downloaded to local storage (`/tmp/datasets/`)
+- ISIC 2018: Automatic download
+- MS COCO 2017: Automatic download (~50GB)
+
+**Results Storage:**
+- Checkpoints and logs saved to `./results/` (network drive with repo)
+- Training artifacts stored locally, cleaned up after completion
+- Best models and evaluation metrics preserved in results directory
+
+### Configuration
+
+Each experiment configuration specifies:
+- `local_data_dir`: Where to download/store datasets locally
+- `results.output_dir`: Where to save checkpoints and results (network drive)
+- Model parameters, training settings, evaluation metrics
+
+Example usage with custom paths:
+```bash
+# Edit config file to specify custom paths
+python ray_train.py --config configs/medical_segmentation.yaml --num-gpus 4
+```
+
+---
+
 ## Experimental Overview
 
 ### Core Hypothesis
@@ -98,68 +163,76 @@ To avoid unnecessary retraining, we use established baseline scores from literat
 
 ### Estimated Requirements
 - **GPU Memory**: 8-16GB per experiment
-- **Training Time**:
-  - Medical segmentation: 4-8 hours per configuration
-  - Object detection: 12-24 hours per configuration
-- **Total Compute**: ~200-300 GPU hours for complete experimental suite
+- **Training Time**: 4-8 hours per model on modern GPUs
+- **Total Experiments**: ~20-30 individual runs
+- **Storage**: ~10GB for datasets, ~5GB for model checkpoints
 
-### Resource Optimization
-- **Dataset Subsets**: Initial experiments on 10-20% of data for rapid iteration
-- **Early Stopping**: Stop training when trends are established
-- **Pretrained Initialization**: Use ImageNet pretrained features where possible
-- **Batch Size Optimization**: Maximize GPU utilization while maintaining reproducibility
-
-## Implementation Strategy
-
-### Code Organization
-```
-experiments/
-├── medical_segmentation/     # ISIC 2018 experiments
-├── object_detection/        # MS COCO experiments
-├── ablations/              # Component analysis
-├── robustness/             # Resolution transfer tests
-├── common/                 # Shared utilities
-│   ├── datasets.py         # Data loading utilities
-│   ├── metrics.py          # Evaluation metrics
-│   ├── models.py           # Model implementations
-│   └── utils.py            # General utilities
-└── results/                # Experimental outputs
-```
-
-### Reproducibility
-- **Random Seeds**: Fixed seeds for all experiments
-- **Environment**: Docker containers with pinned dependencies
-- **Logging**: Comprehensive experiment tracking with Weights & Biases
-- **Checkpoints**: Save model states for result reproduction
-
-## Timeline
-
-| Week | Phase | Deliverables |
-|------|-------|-------------|
-| 1-2 | Medical Segmentation | RAT vs. baselines on ISIC 2018 |
-| 2-3 | Object Detection | RAT vs. baselines on MS COCO small objects |
-| 3-4 | Core Ablations | RoSE, SGA, multi-res component analysis |
-| 4-5 | Architecture Analysis | Optimal depth/width determination |
-| 5-6 | Robustness + Writing | Resolution transfer + manuscript preparation |
+### Recommended Hardware
+- **Local Development**: Single RTX 3080/4080 (12-16GB VRAM)
+- **Full Experiments**: Multi-GPU setup (4x RTX A6000 or similar)
+- **Cluster**: SLURM/LSF with GPU nodes
 
 ## Expected Outcomes
 
-### Technical Contributions
-1. **Empirical validation** of multi-resolution transformer architecture
-2. **Component analysis** showing individual contribution of RoSE and SGA
-3. **Architecture guidelines** for optimal configuration
-4. **Robustness characterization** across input scales
+Based on architectural design principles and preliminary testing:
 
-### Publication Strategy
-- **Main Paper**: Focus on medical segmentation + core ablations
-- **Supplementary**: Complete experimental results + additional baselines
-- **Code Release**: Full experimental suite with pretrained models
-- **Follow-up**: Object detection results as separate computer vision venue submission
+1. **Multi-scale processing** should provide 2-5% improvements on tasks with objects at multiple scales
+2. **RoSE embeddings** should improve spatial understanding, particularly for dense prediction tasks
+3. **SGA mechanisms** should reduce computational cost while maintaining or improving accuracy
+4. **Resolution robustness** should be significantly better than single-scale baselines
 
-## References
+## Datasets and Preprocessing
 
-- Cao, H., et al. (2022). Swin-UNet: Unet-like Pure Transformer for Medical Image Segmentation. ECCV Workshop.
-- Carion, N., et al. (2020). End-to-End Object Detection with Transformers. ECCV.
-- Chen, J., et al. (2021). TransUNet: Transformers Make Strong Encoders for Medical Image Segmentation. arXiv preprint.
-- Codella, N., et al. (2019). Skin Lesion Analysis Toward Melanoma Detection 2018. arXiv preprint.
-- Ultralytics (2023). YOLOv8: A New State-of-the-Art Computer Vision Model.
+### ISIC 2018 Skin Lesion Segmentation
+- **Source**: https://challenge.isic-archive.com/data
+- **Size**: 2,594 training images, 100 validation images
+- **Download**: **Automatic** - Dataset is automatically downloaded to local storage
+- **Fallback**: Kaggle API (`kaggle datasets download -d kmader/skin-cancer-mnist-ham10000`)
+- **Preprocessing**: Resize to target resolution, normalize to [0,1], data augmentation
+- **Splits**: 80% train, 20% validation
+- **Local Storage**: `/tmp/datasets/isic2018/` (for fast training access)
+
+### MS COCO 2017 Object Detection
+- **Source**: https://cocodataset.org/#download
+- **Size**: 118,287 training images, 5,000 validation images
+- **Download**: **Automatic** - Dataset is automatically downloaded to local storage
+- **Preprocessing**: Multi-scale resize, normalize, standard COCO augmentations
+- **Focus**: Small object detection performance (area < 32²)
+- **Local Storage**: `/tmp/datasets/coco2017/` (for fast training access)
+
+### Storage Architecture
+- **Local Data**: Datasets downloaded to `/tmp/datasets/` for optimal I/O performance
+- **Network Results**: Checkpoints, logs, and results saved to `./results/` (persistent with repo)
+- **Smart Caching**: Automatically checks for existing datasets to avoid re-downloading
+
+## Citations
+
+```bibtex
+@article{codella2019skin,
+  title={Skin lesion analysis toward melanoma detection: A challenge at the 2017 international symposium on biomedical imaging (isbi), hosted by the international skin imaging collaboration (isic)},
+  author={Codella, Noel C and Gutman, David and Celebi, M Emre and others},
+  journal={IEEE transactions on medical imaging},
+  year={2019}
+}
+
+@article{cao2022swin,
+  title={Swin-unet: Unet-like pure transformer for medical image segmentation},
+  author={Cao, Hu and Wang, Yueyue and Chen, Joy and others},
+  journal={Computer Vision and Image Understanding},
+  year={2022}
+}
+
+@article{chen2021transunet,
+  title={TransUNet: Transformers make strong encoders for medical image segmentation},
+  author={Chen, Jieneng and Lu, Yongyi and Yu, Qihang and others},
+  journal={arXiv preprint arXiv:2102.04306},
+  year={2021}
+}
+
+@inproceedings{carion2020end,
+  title={End-to-end object detection with transformers},
+  author={Carion, Nicolas and Massa, Francisco and Synnaeve, Gabriel and others},
+  booktitle={European conference on computer vision},
+  year={2020}
+}
+```

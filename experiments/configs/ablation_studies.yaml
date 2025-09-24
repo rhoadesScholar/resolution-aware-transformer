@@ -1,0 +1,100 @@
+# Ablation Studies Configuration - Component Analysis
+# Run with: python ray_train.py --config configs/ablation_studies.yaml --num-gpus 4
+
+# Experiment metadata
+experiment_name: "rat_ablation_studies"
+description: "Comprehensive ablation study for Resolution Aware Transformer components"
+task_type: "ablation"
+
+# Random seed for reproducibility
+seed: 42
+
+# Dataset configuration (using ISIC 2018 for faster ablations)
+data:
+  dataset_name: "isic2018"
+  dataset_url: "https://challenge.isic-archive.com/data/"
+  local_data_dir: "/tmp/datasets/isic2018"  # Local storage for datasets
+  image_size: 256
+  num_workers: 4
+  train_split: "train"
+  val_split: "val"
+  
+  # Data augmentation
+  augmentation:
+    random_flip: 0.5
+    random_rotation: 15
+    color_jitter: 0.1
+    normalize:
+      mean: [0.485, 0.456, 0.406]
+      std: [0.229, 0.224, 0.225]
+
+# Base model configuration (will be modified for each ablation)
+model:
+  name: "rat"
+  spatial_dims: 2
+  input_features: 3
+  feature_dims: 128
+  num_blocks: 4
+  num_heads: 8
+  attention_type: "dense"
+  multi_scale: false
+  learnable_rose: true
+  mlp_ratio: 4
+  mlp_dropout: 0.1
+
+# Training configuration (shortened for ablations)
+training:
+  epochs: 20  # Shorter training for ablation studies
+  # Batch size will be automatically optimized based on GPU memory
+  target_effective_batch_size: 32  # Standard ablation baseline
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  scheduler: "cosine"
+  loss: "combined"
+  grad_clip: 1.0
+  mixed_precision: true
+  use_deepspeed: true  # Enable DeepSpeed Stage 2/3 for memory optimization
+  
+  # Automatic optimization features
+  auto_batch_size: true  # Calculate optimal batch size based on GPU memory
+  gradient_accumulation: "auto"  # Automatically set to achieve target_effective_batch_size
+
+# Ablation study configurations
+ablations:
+  # Test different positional encoding methods
+  positional_encoding:
+    variants: ["rose", "rope", "absolute", "none"]
+    description: "Compare different positional encoding methods"
+  
+  # Test attention mechanisms
+  attention_type:
+    variants: ["dense", "sparse", "mixed"]
+    description: "Compare attention mechanism types"
+  
+  # Test multi-scale vs single-scale
+  multi_scale:
+    variants: [false, true]
+    scales: [[256], [256, 128, 64]]
+    description: "Compare single-scale vs multi-scale processing"
+  
+  # Test architecture depth
+  architecture_depth:
+    variants: [2, 4, 6]
+    description: "Compare different numbers of transformer blocks"
+  
+  # Test feature dimensions
+  feature_dims:
+    variants: [64, 128, 256]
+    description: "Compare different embedding dimensions"
+
+# Results and logging (saved to network drive with repo)
+results:
+  output_dir: "./results/ablation_studies"  # Network drive path
+  save_checkpoints: true
+  checkpoint_freq: 5
+  log_freq: 50
+
+# Evaluation metrics
+evaluation:
+  metrics: ["dice", "iou", "loss"]
+  eval_freq: 2

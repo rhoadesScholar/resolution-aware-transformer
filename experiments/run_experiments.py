@@ -47,8 +47,8 @@ def parse_args():
 
 def run_command(cmd, cwd=None, capture_output=False):
     """Run shell command with proper error handling."""
-    print(f"Running: {' '.join(cmd)}")
-    print(f"Working directory: {cwd or os.getcwd()}")
+    logger.debug(f"Running: {' '.join(cmd)}")
+    logger.info(f"Working directory: {cwd or os.getcwd()}")
 
     try:
         if capture_output:
@@ -60,11 +60,11 @@ def run_command(cmd, cwd=None, capture_output=False):
             subprocess.run(cmd, cwd=cwd, check=True)
             return None, None
     except subprocess.CalledProcessError as e:
-        print(f"Command failed with return code {e.returncode}")
+        logger.info(f"Command failed with return code {e.returncode}")
         if hasattr(e, "stdout") and e.stdout:
-            print(f"STDOUT: {e.stdout}")
+            logger.info(f"STDOUT: {e.stdout}")
         if hasattr(e, "stderr") and e.stderr:
-            print(f"STDERR: {e.stderr}")
+            logger.info(f"STDERR: {e.stderr}")
         raise
 
 
@@ -90,9 +90,9 @@ def update_config_for_quick_mode(config_path):
 
 def run_medical_segmentation(args, output_dir):
     """Run medical segmentation experiment."""
-    print("\n" + "=" * 50)
-    print("RUNNING MEDICAL SEGMENTATION EXPERIMENT")
-    print("=" * 50)
+    logger.info("\n" + "=" * 50)
+    logger.info("RUNNING MEDICAL SEGMENTATION EXPERIMENT")
+    logger.info("=" * 50)
 
     exp_dir = Path(__file__).parent / "medical_segmentation"
     exp_output_dir = output_dir / "medical_segmentation"
@@ -105,13 +105,13 @@ def run_medical_segmentation(args, output_dir):
     # Configure data directory
     isic_dir = args.isic_dir or (args.data_dir and Path(args.data_dir) / "isic2018")
     if not isic_dir:
-        print("Warning: No ISIC data directory provided. Using placeholder.")
+        logger.info("Warning: No ISIC data directory provided. Using placeholder.")
         isic_dir = "/tmp/isic2018"
 
     configs = ["single_scale.yaml", "multi_scale.yaml"]
 
     for config_name in configs:
-        print(f"\n--- Running {config_name} ---")
+        logger.info(f"\n--- Running {config_name} ---")
 
         config_path = exp_dir / "configs" / config_name
         if args.quick:
@@ -135,9 +135,9 @@ def run_medical_segmentation(args, output_dir):
 
             try:
                 run_command(train_cmd, cwd=exp_dir)
-                print(f"✅ Training completed for {config_name}")
+                logger.info(f"✅ Training completed for {config_name}")
             except subprocess.CalledProcessError:
-                print(f"❌ Training failed for {config_name}")
+                logger.info(f"❌ Training failed for {config_name}")
                 continue
 
         # Evaluation (if model exists)
@@ -159,16 +159,16 @@ def run_medical_segmentation(args, output_dir):
 
             try:
                 run_command(eval_cmd, cwd=exp_dir)
-                print(f"✅ Evaluation completed for {config_name}")
+                logger.info(f"✅ Evaluation completed for {config_name}")
             except subprocess.CalledProcessError:
-                print(f"❌ Evaluation failed for {config_name}")
+                logger.info(f"❌ Evaluation failed for {config_name}")
 
 
 def run_object_detection(args, output_dir):
     """Run object detection experiment."""
-    print("\n" + "=" * 50)
-    print("RUNNING OBJECT DETECTION EXPERIMENT")
-    print("=" * 50)
+    logger.info("\n" + "=" * 50)
+    logger.info("RUNNING OBJECT DETECTION EXPERIMENT")
+    logger.info("=" * 50)
 
     exp_dir = Path(__file__).parent / "object_detection"
     exp_output_dir = output_dir / "object_detection"
@@ -177,13 +177,13 @@ def run_object_detection(args, output_dir):
     # Configure data directory
     coco_dir = args.coco_dir or (args.data_dir and Path(args.data_dir) / "coco2017")
     if not coco_dir:
-        print("Warning: No COCO data directory provided. Using placeholder.")
+        logger.info("Warning: No COCO data directory provided. Using placeholder.")
         coco_dir = "/tmp/coco2017"
 
     configs = ["single_scale.yaml", "multi_scale.yaml"]
 
     for config_name in configs:
-        print(f"\n--- Running {config_name} ---")
+        logger.info(f"\n--- Running {config_name} ---")
 
         config_path = exp_dir / "configs" / config_name
         if args.quick:
@@ -209,16 +209,16 @@ def run_object_detection(args, output_dir):
 
             try:
                 run_command(train_cmd, cwd=exp_dir)
-                print(f"✅ Training completed for {config_name}")
+                logger.info(f"✅ Training completed for {config_name}")
             except subprocess.CalledProcessError:
-                print(f"❌ Training failed for {config_name}")
+                logger.info(f"❌ Training failed for {config_name}")
 
 
 def run_ablations(args, output_dir):
     """Run ablation studies."""
-    print("\n" + "=" * 50)
-    print("RUNNING ABLATION STUDIES")
-    print("=" * 50)
+    logger.info("\n" + "=" * 50)
+    logger.info("RUNNING ABLATION STUDIES")
+    logger.info("=" * 50)
 
     exp_dir = Path(__file__).parent / "ablations"
     exp_output_dir = output_dir / "ablations"
@@ -231,7 +231,7 @@ def run_ablations(args, output_dir):
     # Setup data directory
     data_dir = args.isic_dir or (args.data_dir and Path(args.data_dir) / "isic2018")
     if not data_dir:
-        print("Warning: No data directory provided for ablations.")
+        logger.info("Warning: No data directory provided for ablations.")
         data_dir = "/tmp/isic2018"
 
     ablation_cmd = [
@@ -250,16 +250,16 @@ def run_ablations(args, output_dir):
 
     try:
         run_command(ablation_cmd, cwd=exp_dir)
-        print("✅ Ablation studies completed")
+        logger.info("✅ Ablation studies completed")
     except subprocess.CalledProcessError:
-        print("❌ Ablation studies failed")
+        logger.info("❌ Ablation studies failed")
 
 
 def run_robustness(args, output_dir):
     """Run robustness testing."""
-    print("\n" + "=" * 50)
-    print("RUNNING ROBUSTNESS TESTING")
-    print("=" * 50)
+    logger.info("\n" + "=" * 50)
+    logger.info("RUNNING ROBUSTNESS TESTING")
+    logger.info("=" * 50)
 
     exp_dir = Path(__file__).parent / "robustness"
     exp_output_dir = output_dir / "robustness"
@@ -284,7 +284,7 @@ def run_robustness(args, output_dir):
                     model_paths.append((model_path, config_path))
 
     if not model_paths:
-        print("❌ No trained models found for robustness testing")
+        logger.info("❌ No trained models found for robustness testing")
         return
 
     # Run resolution transfer test on first available model
@@ -309,16 +309,16 @@ def run_robustness(args, output_dir):
 
     try:
         run_command(resolution_cmd, cwd=exp_dir)
-        print("✅ Robustness testing completed")
+        logger.info("✅ Robustness testing completed")
     except subprocess.CalledProcessError:
-        print("❌ Robustness testing failed")
+        logger.info("❌ Robustness testing failed")
 
 
 def generate_final_report(output_dir):
     """Generate final experiment report."""
-    print("\n" + "=" * 50)
-    print("GENERATING FINAL REPORT")
-    print("=" * 50)
+    logger.info("\n" + "=" * 50)
+    logger.info("GENERATING FINAL REPORT")
+    logger.info("=" * 50)
 
     report = {
         "experiment_summary": {
@@ -361,10 +361,10 @@ def generate_final_report(output_dir):
         json.dump(report, f, indent=2)
 
     # Print summary
-    print(f"Total experiments: {report['experiment_summary']['total_experiments']}")
-    print(f"Successful: {report['experiment_summary']['successful_experiments']}")
-    print(f"Failed: {report['experiment_summary']['failed_experiments']}")
-    print(f"\nDetailed report saved to: {output_dir / 'experiment_report.json'}")
+    logger.info(f"Total experiments: {report['experiment_summary']['total_experiments']}")
+    logger.info(f"Successful: {report['experiment_summary']['successful_experiments']}")
+    logger.info(f"Failed: {report['experiment_summary']['failed_experiments']}")
+    logger.info(f"\nDetailed report saved to: {output_dir / 'experiment_report.json'}")
 
 
 def main():
@@ -374,10 +374,10 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print("🚀 Starting Resolution Aware Transformer Benchmark Experiments")
-    print(f"Output directory: {output_dir}")
-    print(f"GPU device: {args.gpu}")
-    print(f"Quick mode: {args.quick}")
+    logger.info("🚀 Starting Resolution Aware Transformer Benchmark Experiments")
+    logger.info(f"Output directory: {output_dir}")
+    logger.info(f"GPU device: {args.gpu}")
+    logger.info(f"Quick mode: {args.quick}")
 
     # Set GPU environment
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -409,14 +409,14 @@ def main():
         end_time = time.time()
         total_time = end_time - start_time
 
-        print("\n🎉 All experiments completed!")
-        print(f"Total time: {total_time/3600:.2f} hours")
-        print(f"Results saved to: {output_dir}")
+        logger.info("\n🎉 All experiments completed!")
+        logger.info(f"Total time: {total_time/3600:.2f} hours")
+        logger.info(f"Results saved to: {output_dir}")
 
     except KeyboardInterrupt:
-        print("\n⚠️ Experiments interrupted by user")
+        logger.info("\n⚠️ Experiments interrupted by user")
     except Exception as e:
-        print(f"\n❌ Experiments failed with error: {e}")
+        logger.info(f"\n❌ Experiments failed with error: {e}")
         raise
 
 

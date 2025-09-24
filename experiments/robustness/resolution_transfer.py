@@ -296,7 +296,7 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Loading model from: {args.model_path}")
+    logger.info(f"Loading model from: {args.model_path}")
 
     # Load model
     model_config = config["model"].copy()
@@ -315,64 +315,64 @@ def main():
     train_resolution = config["data"]["image_size"]
     data_dir = args.data_dir or config["data"]["data_dir"]
 
-    print(f"Training resolution: {train_resolution}x{train_resolution}")
-    print(f"Test resolutions: {args.test_resolutions}")
+    logger.info(f"Training resolution: {train_resolution}x{train_resolution}")
+    logger.info(f"Test resolutions: {args.test_resolutions}")
 
     # Evaluate at each resolution
     results = {}
 
     for resolution in args.test_resolutions:
-        print(f"\nEvaluating at {resolution}x{resolution}...")
+        logger.info(f"\nEvaluating at {resolution}x{resolution}...")
         try:
             metrics = evaluate_at_resolution(
                 model, data_dir, resolution, config, device
             )
             results[resolution] = metrics
 
-            print(f"  Dice: {metrics['dice']:.4f}")
-            print(f"  IoU:  {metrics['iou']:.4f}")
-            print(f"  Time: {metrics['avg_inference_time']:.2f}ms")
-            print(f"  FPS:  {metrics['throughput_fps']:.2f}")
+            logger.info(f"  Dice: {metrics['dice']:.4f}")
+            logger.info(f"  IoU:  {metrics['iou']:.4f}")
+            logger.info(f"  Time: {metrics['avg_inference_time']:.2f}ms")
+            logger.info(f"  FPS:  {metrics['throughput_fps']:.2f}")
         except Exception as e:
-            print(f"  Error: {e}")
+            logger.info(f"  Error: {e}")
             continue
 
     if not results:
-        print("No successful evaluations!")
+        logger.info("No successful evaluations!")
         return
 
     # Analyze results
     analysis = analyze_transfer_patterns(results, train_resolution)
 
     # Print summary
-    print("\n" + "=" * 50)
-    print("RESOLUTION TRANSFER ANALYSIS")
-    print("=" * 50)
+    logger.info("\n" + "=" * 50)
+    logger.info("RESOLUTION TRANSFER ANALYSIS")
+    logger.info("=" * 50)
 
-    print(f"Training Resolution: {train_resolution}x{train_resolution}")
-    print(f"Baseline Dice: {results[train_resolution]['dice']:.4f}")
+    logger.info(f"Training Resolution: {train_resolution}x{train_resolution}")
+    logger.info(f"Baseline Dice: {results[train_resolution]['dice']:.4f}")
 
     if "upscaling" in analysis["transfer_analysis"]:
         up_analysis = analysis["transfer_analysis"]["upscaling"]
-        print("\nUpscaling Performance:")
-        print(f"  Average degradation: {up_analysis['avg_degradation_percent']:.2f}%")
-        print(f"  Maximum degradation: {up_analysis['max_degradation_percent']:.2f}%")
+        logger.info("\nUpscaling Performance:")
+        logger.info(f"  Average degradation: {up_analysis['avg_degradation_percent']:.2f}%")
+        logger.info(f"  Maximum degradation: {up_analysis['max_degradation_percent']:.2f}%")
 
     if "downscaling" in analysis["transfer_analysis"]:
         down_analysis = analysis["transfer_analysis"]["downscaling"]
-        print("\nDownscaling Performance:")
-        print(f"  Average degradation: {down_analysis['avg_degradation_percent']:.2f}%")
-        print(f"  Maximum degradation: {down_analysis['max_degradation_percent']:.2f}%")
+        logger.info("\nDownscaling Performance:")
+        logger.info(f"  Average degradation: {down_analysis['avg_degradation_percent']:.2f}%")
+        logger.info(f"  Maximum degradation: {down_analysis['max_degradation_percent']:.2f}%")
 
     scale_inv = analysis["scale_invariance"]
-    print("\nScale Invariance:")
-    print(f"  Dice variance: {scale_inv['dice_variance']:.6f}")
-    print(f"  Coefficient of variation: {scale_inv['coefficient_of_variation']:.4f}")
-    print(f"  Worst-case degradation: {scale_inv['worst_case_degradation']:.2f}%")
+    logger.info("\nScale Invariance:")
+    logger.info(f"  Dice variance: {scale_inv['dice_variance']:.6f}")
+    logger.info(f"  Coefficient of variation: {scale_inv['coefficient_of_variation']:.4f}")
+    logger.info(f"  Worst-case degradation: {scale_inv['worst_case_degradation']:.2f}%")
 
     efficiency = analysis["efficiency"]
-    print("\nComputational Efficiency:")
-    print(f"  Scaling efficiency: {efficiency['scaling_efficiency']:.2f}")
+    logger.info("\nComputational Efficiency:")
+    logger.info(f"  Scaling efficiency: {efficiency['scaling_efficiency']:.2f}")
 
     # Save results
     import json
@@ -385,8 +385,8 @@ def main():
     # Create plots
     plot_resolution_transfer_results(results, output_dir, train_resolution)
 
-    print(f"\nResults saved to: {output_dir}")
-    print(f"Plots saved to: {output_dir}")
+    logger.info(f"\nResults saved to: {output_dir}")
+    logger.info(f"Plots saved to: {output_dir}")
 
 
 if __name__ == "__main__":

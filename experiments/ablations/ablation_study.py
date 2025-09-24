@@ -455,9 +455,9 @@ def main():
     # Run ablation study
     results = run_ablation_study(config, args)
 
-    print("\nAblation study completed!")
-    print(f"Results saved to: {args.output_dir}")
-    print(f"Best Dice score: {results['dice'].max():.4f}")
+    logger.info("\nAblation study completed!")
+    logger.info(f"Results saved to: {args.output_dir}")
+    logger.info(f"Best Dice score: {results['dice'].max():.4f}")
 
 
 if __name__ == "__main__":

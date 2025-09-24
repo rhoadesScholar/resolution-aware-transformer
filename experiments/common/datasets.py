@@ -555,13 +555,13 @@ def download_dataset(dataset_name: str, download_dir: str) -> str:
         dataset_dir = download_dir_path / "ISIC2018"
 
         if not dataset_dir.exists():
-            print("ISIC 2018 dataset not found. Please download manually from:")
-            print("https://challenge.isic-archive.com/data/")
-            print("Required files:")
-            print("- ISIC2018_Task1-2_Training_Input (images)")
-            print("- ISIC2018_Task1_Training_GroundTruth (segmentation masks)")
-            print("- ISIC2018_Task1-2_Validation_Input (validation images)")
-            print("- ISIC2018_Task1_Validation_GroundTruth (validation masks)")
+            logger.info("ISIC 2018 dataset not found. Please download manually from:")
+            logger.info("https://challenge.isic-archive.com/data/")
+            logger.info("Required files:")
+            logger.info("- ISIC2018_Task1-2_Training_Input (images)")
+            logger.info("- ISIC2018_Task1_Training_GroundTruth (segmentation masks)")
+            logger.info("- ISIC2018_Task1-2_Validation_Input (validation images)")
+            logger.info("- ISIC2018_Task1_Validation_GroundTruth (validation masks)")
 
         return str(dataset_dir)
 
@@ -570,12 +570,12 @@ def download_dataset(dataset_name: str, download_dir: str) -> str:
         dataset_dir = download_dir_path / "COCO2017"
 
         if not dataset_dir.exists():
-            print("COCO 2017 dataset not found. Please download manually from:")
-            print("https://cocodataset.org/#download")
-            print("Required files:")
-            print("- 2017 Train images")
-            print("- 2017 Val images")
-            print("- 2017 Train/Val annotations")
+            logger.info("COCO 2017 dataset not found. Please download manually from:")
+            logger.info("https://cocodataset.org/#download")
+            logger.info("Required files:")
+            logger.info("- 2017 Train images")
+            logger.info("- 2017 Val images")
+            logger.info("- 2017 Train/Val annotations")
 
         return str(dataset_dir)
 

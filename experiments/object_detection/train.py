@@ -26,7 +26,7 @@ try:
 except ImportError:
     deepspeed = None
     DEEPSPEED_AVAILABLE = False
-    print("Warning: DeepSpeed not available. Install with: pip install deepspeed")
+    logger.info("Warning: DeepSpeed not available. Install with: pip install deepspeed")
 
 # Add common utilities to path
 sys.path.append(str(Path(__file__).parent.parent / "common"))
@@ -322,7 +322,7 @@ def train_epoch(
         )
 
         if batch_idx % config["logging"]["log_interval"] == 0:
-            print(f"Batch {batch_idx}: Loss={loss_meter.avg:.4f}")
+            logger.info(f"Batch {batch_idx}: Loss={loss_meter.avg:.4f}")
 
     return {
         "train_loss": loss_meter.avg,
@@ -396,8 +396,8 @@ def main():
         else torch.device(f"cuda:{args.local_rank}")
     )
 
-    print(f"Training {config['name']}")
-    print(f"Device: {device}")
+    logger.info(f"Training {config['name']}")
+    logger.info(f"Device: {device}")
 
     # Create output directory
     output_dir = Path(args.output_dir)
@@ -465,8 +465,8 @@ def main():
     )
 
     if not args.distributed or args.local_rank == 0:
-        print(f"Train dataset: {len(train_dataset)} samples")
-        print(f"Val dataset: {len(val_dataset)} samples")
+        logger.info(f"Train dataset: {len(train_dataset)} samples")
+        logger.info(f"Val dataset: {len(val_dataset)} samples")
 
     # Create model
     model_config = config["model"].copy()
@@ -480,7 +480,7 @@ def main():
     scheduler = None
 
     if args.deepspeed and DEEPSPEED_AVAILABLE:
-        print(f"Using DeepSpeed with ZeRO Stage {args.zero_stage}")
+        logger.info(f"Using DeepSpeed with ZeRO Stage {args.zero_stage}")
 
         # Create DeepSpeed configuration
         deepspeed_config = create_deepspeed_config(
@@ -498,7 +498,7 @@ def main():
         device = model_engine.device
         is_deepspeed = True
 
-        print(f"DeepSpeed initialized with device: {device}")
+        logger.info(f"DeepSpeed initialized with device: {device}")
 
     else:
         # Standard training setup
@@ -540,9 +540,9 @@ def main():
     if not args.distributed or args.local_rank == 0:
         if is_deepspeed:
             # For DeepSpeed, parameter counting is more complex due to partitioning
-            print("Model parameters: DeepSpeed partitioned (exact count not available)")
+            logger.info("Model parameters: DeepSpeed partitioned (exact count not available)")
         else:
-            print(
+            logger.info(
                 f"Model parameters: "
                 f"{sum(p.numel() for p in model.parameters() if p.requires_grad):,}"
             )
@@ -576,15 +576,15 @@ def main():
         start_epoch = checkpoint["epoch"] + 1
         best_val_loss = checkpoint["best_val_loss"]
         if not args.distributed or args.local_rank == 0:
-            print(f"Resumed from epoch {start_epoch}")
+            logger.info(f"Resumed from epoch {start_epoch}")
 
     if not args.distributed or args.local_rank == 0:
-        print(f"Starting training for {config['training']['num_epochs']} epochs...")
+        logger.info(f"Starting training for {config['training']['num_epochs']} epochs...")
 
     for epoch in range(start_epoch, config["training"]["num_epochs"]):
         if not args.distributed or args.local_rank == 0:
-            print(f"\nEpoch {epoch + 1}/{config['training']['num_epochs']}")
-            print("-" * 50)
+            logger.info(f"\nEpoch {epoch + 1}/{config['training']['num_epochs']}")
+            logger.info("-" * 50)
 
         # Update sampler epoch for distributed training
         if args.distributed and train_sampler is not None:
@@ -621,8 +621,8 @@ def main():
                 tracker.log_metrics(all_metrics, epoch)
 
             if not args.distributed or args.local_rank == 0:
-                print(f"Train Loss: {train_metrics['train_loss']:.4f}")
-                print(f"Val Loss: {val_metrics['val_loss']:.4f}")
+                logger.info(f"Train Loss: {train_metrics['train_loss']:.4f}")
+                logger.info(f"Val Loss: {val_metrics['val_loss']:.4f}")
 
             # Save best model (only on main process)
             if (not args.distributed or args.local_rank == 0) and val_metrics[
@@ -648,7 +648,7 @@ def main():
                         output_dir / "best_model.pth",
                     )
 
-                print(f"New best model saved! Val Loss: {best_val_loss:.4f}")
+                logger.info(f"New best model saved! Val Loss: {best_val_loss:.4f}")
 
         # Update scheduler (not for DeepSpeed as it handles scheduling internally)
         if scheduler and not is_deepspeed:
@@ -674,7 +674,7 @@ def main():
                 )
 
     if not args.distributed or args.local_rank == 0:
-        print(f"\nTraining completed! Best validation loss: {best_val_loss:.4f}")
+        logger.info(f"\nTraining completed! Best validation loss: {best_val_loss:.4f}")
         if tracker is not None:
             tracker.finish()
 

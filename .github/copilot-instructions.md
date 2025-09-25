@@ -18,10 +18,9 @@ The Resolution Aware Transformer (RAT) is a PyTorch implementation for multi-sca
 ## Experiment Framework Structure
 
 ### Configuration Management
-- **Central Config**: `experiments/config_manager.py` - handles both local and cluster configurations
-- **YAML Configs**: Task-specific configs in `experiments/{medical_segmentation,object_detection}/configs/`
-- **Cluster Configs**: Prefixed with `cluster_` for LSF/SLURM deployment
-- **DeepSpeed Integration**: `deepspeed_*.json` configs for ZeRO optimization stages
+- **Centralized Configs**: All task-specific configs in `experiments/configs/`
+- **Ray Integration**: Configs designed for Ray Train distributed execution
+- **DeepSpeed Integration**: Automatic DeepSpeed config generation for optimization
 
 ### Multi-Experiment Coordination
 - **Unified Pipeline**: `experiments/run_ray_experiments.py` - complete experiment orchestrator (training + evaluation)
@@ -97,10 +96,10 @@ make test-cov
 make format && make lint
 ```
 
-### Cluster Deployment
-- **LSF Scripts**: `experiments/cluster/submit_*.lsf` for multi-GPU training
-- **Distributed Training**: `experiments/train_distributed.py` handles multi-GPU coordination
-- **Log Management**: `experiments/organize_logs.sh` for centralizing experiment outputs
+### Cluster Deployment  
+- **Ray Train Integration**: Automatic cluster resource detection and optimization
+- **DeepSpeed Support**: Built-in memory optimization for large-scale training
+- **Log Management**: Centralized logging in `experiments/results/` directory
 
 ### Experiment Execution
 ```bash
@@ -172,8 +171,8 @@ except ImportError:
 - **Run Command**: `pytest tests/` or `make test`
 
 ### Integration Tests
-- **Quick Validation**: `experiments/cluster/submit_quick_test.lsf` for 2-GPU testing
-- **Memory Testing**: Reduce model parameters before scaling up batch sizes or image resolutions
+- **Quick Validation**: Use `--quick` flag with `run_ray_experiments.py` for rapid testing
+- **Memory Testing**: Automatic batch size optimization handles memory constraints
 
 ## File Organization Rules
 
@@ -183,13 +182,13 @@ except ImportError:
 - **Common Utilities**: `experiments/common/` - shared datasets, models, metrics, utils
 
 ### Configuration Files
-- **Local Development**: Standard YAML configs without `cluster_` prefix
-- **Cluster Deployment**: `cluster_*.yaml` configs with optimized resource settings
-- **DeepSpeed**: `deepspeed_*.json` for large-scale distributed training
+- **Unified Configs**: Single YAML configs in `experiments/configs/` for all environments
+- **Ray Train Integration**: Configs optimized for Ray Train distributed execution
+- **Automatic Optimization**: DeepSpeed and batch size optimization built-in
 
 ### Results & Logging
 - **TensorBoard Logs**: `experiments/results/tensorboard_logs/`
-- **LSF/SLURM Logs**: `experiments/results/lsf_logs/` (auto-organized by job ID)
+- **Ray Train Logs**: `experiments/results/ray_logs/` (organized by experiment)
 - **Experiment Outputs**: `experiments/results/experiment_logs/`
 
 ## Key Debugging Points
@@ -245,9 +244,9 @@ export MKL_NUM_THREADS=4
 #### Stage 1: Quick Memory Test
 ```bash
 # Start with minimal config for memory profiling
-python experiments/medical_segmentation/train.py \
-  --config configs/rat_multiscale.yaml \
-  --debug  # Uses smaller dataset/batch size
+python experiments/ray_train.py \
+  --config configs/medical_segmentation.yaml \
+  --num-gpus 1  # Single GPU testing
 ```
 
 #### Stage 2: Progressive Scaling
@@ -266,42 +265,30 @@ nvidia-smi -l 1 | tee gpu_usage.log
 # Look for uneven memory distribution across GPUs
 ```
 
-### LSF/SLURM Job Debugging
+### Ray Train Job Debugging
 
-#### Check Job Status and Resource Usage
+#### Monitor Ray Train Jobs
 ```bash
-# Monitor active jobs
-bjobs -u $USER  # LSF
-squeue -u $USER  # SLURM
+# Monitor Ray cluster status
+ray status
 
-# Check job details and resource usage
-bjobs -l <job_id>
-squeue -j <job_id> --format="%.18i %.9P %.50j %.8u %.8T %.10M %.9l %.6D %R"
+# Check Ray Train experiment progress
+tail -f experiments/results/ray_logs/experiment_*.log
+
+# Monitor GPU usage across Ray workers
+ray exec experiments/configs/cluster.yaml 'nvidia-smi'
 ```
 
-#### Analyze Log Files
+#### Resource Optimization
 ```bash
-# Quick error scanning across all LSF logs
-grep -r "Error\|Exception\|Traceback" experiments/results/lsf_logs/
+# Ray automatically handles resource allocation
+# Check allocated resources in Ray dashboard
+ray dashboard
 
-# Check for CUDA OOM specifically
-grep -r "out of memory\|CUDA_ERROR_OUT_OF_MEMORY" experiments/results/lsf_logs/
-
-# Monitor experiment progress
-tail -f experiments/results/lsf_logs/rat_*.out
-```
-
-#### Resource Allocation Issues
-```bash
-# Common LSF/SLURM resource problems:
-# 1. GPU allocation mismatch with --nproc_per_node
-# 2. Memory limits too low for multi-scale processing
-# 3. Time limits insufficient for large experiments
-
-# Debug resource allocation
-echo "Allocated GPUs: $CUDA_VISIBLE_DEVICES"
-echo "World size: $WORLD_SIZE"
-echo "Local rank: $LOCAL_RANK"
+# Debug distributed training
+echo "Ray worker rank: $RAY_TRAIN_RANK"
+echo "Ray world size: $RAY_TRAIN_WORLD_SIZE"
+echo "Local GPU count: $(python -c 'import torch; print(torch.cuda.device_count())')"
 ```
 
 ### Configuration Debugging Patterns

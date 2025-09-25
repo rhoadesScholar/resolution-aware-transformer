@@ -174,4 +174,4 @@ Desktop.ini
 experiments/results/*logs
 experiments/.config
 experiments/data
-experiments/cluster/*.lsf
+# Legacy cluster files have been removed

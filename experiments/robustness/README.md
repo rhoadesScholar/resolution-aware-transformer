@@ -59,10 +59,10 @@ for test_res in test_resolutions:
 cd experiments/robustness
 
 # Run resolution transfer test
-python resolution_transfer.py --model_path ../medical_segmentation/checkpoints/best_model.pth
+python resolution_transfer.py --model_path ../checkpoints/best_model.pth
 
 # Run scale invariance analysis
-python scale_invariance.py --model_path ../object_detection/checkpoints/best_model.pth
+python scale_invariance.py --model_path ../checkpoints/best_model.pth
 
 # Run robustness evaluation
 python robustness_test.py --model_path models/pretrained.pth --corruption_types all

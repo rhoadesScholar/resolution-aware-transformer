@@ -58,11 +58,11 @@ python ray_train.py --config configs/multiscale_segmentation.yaml --num-gpus 4
 ```bash
 # Standard evaluation
 python ray_evaluate.py --config configs/medical_segmentation.yaml \
-  --checkpoint results/medical_segmentation/checkpoints/best_model.pth --num-gpus 2
+  --checkpoint results/checkpoints/best_model.pth --num-gpus 2
 
 # Robustness testing across multiple resolutions
 python ray_evaluate.py --config configs/medical_segmentation.yaml \
-  --checkpoint results/medical_segmentation/checkpoints/best_model.pth \
+  --checkpoint results/checkpoints/best_model.pth \
   --robustness --resolutions 128 256 512 1024 --num-gpus 2
 ```
 

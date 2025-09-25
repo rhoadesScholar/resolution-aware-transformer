@@ -13,29 +13,34 @@ pip install ray[train] requests
 
 The new experiment system uses Ray Train for distributed training and evaluation with three main scripts:
 
-- **`run_ray_experiments.py`**: Complete experiment orchestrator (training + evaluation)
-- **`ray_train.py`**: Optimized distributed training with DeepSpeed
-- **`ray_evaluate.py`**: Comprehensive evaluation with multiple metrics
+## Core File Structure
+
+- **`run_experiment.py`**: Simple direct experiment runner (RECOMMENDED)
+- **`ray_train.py`**: Distributed training with Ray Train and DeepSpeed
+- **`ray_evaluate.py`**: Comprehensive evaluation with robustness testing
 
 ### Quick Start - Complete Experiments
 
 Run full experiment suites with training and evaluation:
 
 ```bash
-# Run all experiments (recommended)
-python run_ray_experiments.py --config configs/medical_segmentation.yaml --num-gpus 4
+## Quick Start
 
-# Run specific experiments
-python run_ray_experiments.py --config configs/medical_segmentation.yaml \
-  --experiments medical_segmentation robustness_test --num-gpus 4
+```bash
+# Run complete experiment (training + evaluation) - RECOMMENDED
+python run_experiment.py --config configs/medical_segmentation.yaml --num-gpus 4
 
-# Quick testing mode (reduced epochs/data)
-python run_ray_experiments.py --config configs/medical_segmentation.yaml \
+# Evaluation-only mode with existing checkpoint
+python run_experiment.py --config configs/medical_segmentation.yaml \
+  --evaluation-only --checkpoint results/checkpoints/best_model.pth --num-gpus 2
+
+# Quick test with minimal resources
+python run_experiment.py --config configs/medical_segmentation.yaml \
   --quick --num-gpus 2
 
-# Comprehensive ablation study
-python run_ray_experiments.py --config configs/medical_segmentation.yaml \
-  --ablation-only --num-gpus 4
+# Robustness testing
+python run_experiment.py --config configs/medical_segmentation.yaml \
+  --evaluation-only --checkpoint results/checkpoints/best_model.pth --robustness --num-gpus 4
 ```
 
 ### Individual Training and Evaluation

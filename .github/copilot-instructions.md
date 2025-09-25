@@ -23,7 +23,7 @@ The Resolution Aware Transformer (RAT) is a PyTorch implementation for multi-sca
 - **DeepSpeed Integration**: Automatic DeepSpeed config generation for optimization
 
 ### Multi-Experiment Coordination
-- **Unified Pipeline**: `experiments/run_ray_experiments.py` - complete experiment orchestrator (training + evaluation)
+- **Simple Experiment Runner**: `experiments/run_experiment.py` - single experiment with dedicated configs (RECOMMENDED)
 - **Distributed Training**: `experiments/ray_train.py` - Ray Train with DeepSpeed optimization
 - **Comprehensive Evaluation**: `experiments/ray_evaluate.py` - multi-metric evaluation with robustness testing
 
@@ -103,8 +103,8 @@ make format && make lint
 
 ### Experiment Execution
 ```bash
-# Complete experiment suite (training + evaluation)
-python experiments/run_ray_experiments.py --config configs/medical_segmentation.yaml --num-gpus 4
+# Simple experiment runner (RECOMMENDED)
+python experiments/run_experiment.py --config configs/medical_segmentation.yaml --num-gpus 4
 
 # Individual training with Ray optimization
 python experiments/ray_train.py --config configs/medical_segmentation.yaml --num-gpus 4
@@ -113,11 +113,12 @@ python experiments/ray_train.py --config configs/medical_segmentation.yaml --num
 python experiments/ray_evaluate.py --config configs/medical_segmentation.yaml \
   --checkpoint results/checkpoints/best_model.pth --robustness --num-gpus 2
 
-# Comprehensive ablation study
-python experiments/run_ray_experiments.py --config configs/medical_segmentation.yaml --ablation-only
+# Evaluation-only mode (using pretrained checkpoint)
+python experiments/run_experiment.py --config configs/medical_segmentation.yaml \
+  --evaluation-only --checkpoint results/checkpoints/best_model.pth --num-gpus 2
 
 # Quick testing mode
-python experiments/run_ray_experiments.py --config configs/medical_segmentation.yaml --quick --num-gpus 2
+python experiments/run_experiment.py --config configs/medical_segmentation.yaml --quick --num-gpus 2
 
 
 ```
@@ -132,9 +133,9 @@ python experiments/ray_evaluate.py --config configs/rat_multiscale.yaml \
   --checkpoint results/checkpoints/best_model.pth \
   --robustness --resolutions 128 256 512 1024 --num-gpus 4
 
-# Custom ablation study with specific variants
-python experiments/run_ray_experiments.py --config configs/rat_multiscale.yaml \
-  --ablation-only --quick --num-gpus 4
+# Robustness testing with simple runner
+python experiments/run_experiment.py --config configs/rat_multiscale.yaml \
+  --evaluation-only --checkpoint results/checkpoints/best_model.pth --robustness --num-gpus 4
 
 # Evaluation-only workflow for pretrained models
 python experiments/ray_evaluate.py --config configs/rat_multiscale.yaml \
@@ -171,7 +172,7 @@ except ImportError:
 - **Run Command**: `pytest tests/` or `make test`
 
 ### Integration Tests
-- **Quick Validation**: Use `--quick` flag with `run_ray_experiments.py` for rapid testing
+- **Quick Validation**: Use `--quick` flag with `run_experiment.py` for rapid testing
 - **Memory Testing**: Automatic batch size optimization handles memory constraints
 
 ## File Organization Rules

@@ -14,6 +14,9 @@ from typing import Dict, Any, List, Optional
 import logging
 import yaml
 
+sys.path.append(str(Path(__file__).parent))
+from . import DEFAULT_TEST_RESOLUTIONS
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -131,10 +134,6 @@ def run_experiment_suite(
     logger.info(f"Report saved to: {report_path}")
 
     return results
-
-
-# Default test resolutions for robustness evaluation
-DEFAULT_TEST_RESOLUTIONS = [128, 256, 512]
 
 
 def run_single_experiment(

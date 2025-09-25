@@ -30,7 +30,7 @@ try:
 except ImportError:
     deepspeed = None
     DEEPSPEED_AVAILABLE = False
-    logger.info("Warning: DeepSpeed not available. Install with: pip install deepspeed")
+    logger.warning("DeepSpeed not available. Install with: pip install deepspeed")
 
 # Add common utilities to path
 sys.path.append(str(Path(__file__).parent.parent / "common"))

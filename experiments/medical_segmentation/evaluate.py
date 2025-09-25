@@ -7,6 +7,7 @@ import sys
 import torch
 from tqdm import tqdm
 import yaml
+import json
 
 import logging
 
@@ -149,11 +150,9 @@ def main():
     )
     logger.info(f"Sensitivity:      {metrics['sensitivity']:.4f}")
     logger.info(f"Specificity:      {metrics['specificity']:.4f}")
-    logger.info()
     logger.info("COMPARISON TO BASELINE (U-Net):")
     logger.info(f"Dice improvement: {dice_improvement:+.2f}%")
     logger.info(f"IoU improvement:  {iou_improvement:+.2f}%")
-    logger.info()
 
     # Benchmark if requested
     if args.benchmark:
@@ -195,9 +194,6 @@ def main():
 
     if args.benchmark:
         detailed_results["benchmark"] = benchmark_results
-
-    # Save to file
-    import json
 
     with open(output_dir / "evaluation_results.json", "w") as f:
         json.dump(detailed_results, f, indent=2)

@@ -2,6 +2,7 @@
 
 from typing import Dict, List, Tuple
 import warnings
+import time
 
 import numpy as np
 import torch
@@ -336,8 +337,6 @@ def benchmark_model(
         torch.cuda.synchronize()
 
     # Timing
-    import time
-
     times = []
 
     with torch.no_grad():

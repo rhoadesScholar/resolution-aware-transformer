@@ -9,6 +9,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 import yaml
+import json
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -388,8 +389,6 @@ def main():
     logger.info(f"  Scaling efficiency: {efficiency['scaling_efficiency']:.2f}")
 
     # Save results
-    import json
-
     with open(output_dir / "resolution_transfer_results.json", "w") as f:
         json.dump(
             {"results": results, "analysis": analysis, "config": config}, f, indent=2

@@ -12,6 +12,9 @@ os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
 import argparse
 from pathlib import Path
 import sys
+import json
+import time
+import logging
 
 import torch
 import torch.nn as nn
@@ -88,8 +91,6 @@ def create_deepspeed_config(args, config):
 
     # Use provided config file or create default
     if args.deepspeed_config:
-        import json
-
         with open(args.deepspeed_config, "r") as f:
             ds_config = json.load(f)
         return ds_config
@@ -483,8 +484,6 @@ def main():
         tracker.start_timer()
     else:
         # Create a dummy logger for non-rank 0 processes
-        import logging
-
         logger = logging.getLogger("medical_segmentation_train")
         logger.setLevel(logging.INFO)
         handler = logging.StreamHandler()
@@ -617,7 +616,6 @@ def main():
                     logger.info("Clearing CUDA cache and retrying...")
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
-                    import time
 
                     time.sleep(2)  # Brief delay before retry
                 else:

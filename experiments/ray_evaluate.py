@@ -16,7 +16,7 @@ import time
 import numpy as np
 from dataclasses import dataclass
 
-from experiments.run_ray_experiments import DEFAULT_TEST_RESOLUTIONS
+from . import DEFAULT_TEST_RESOLUTIONS
 
 # Ray Train imports
 try:

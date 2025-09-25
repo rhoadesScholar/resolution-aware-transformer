@@ -143,23 +143,35 @@ def adjust_config_for_gpu_memory(
 
     # Auto-detect GPU memory from cluster config if not provided
     if gpu_memory_gb is None:
+        # Try to detect GPU memory using PyTorch
         try:
-            # Try to read from .config file
-            import configparser
-            from pathlib import Path
-
-            config_file = Path(__file__).parent.parent / ".config"
-            if config_file.exists():
-                cluster_config = configparser.ConfigParser()
-                cluster_config.read(config_file)
-                memory_mb = int(
-                    cluster_config.get("cluster", "memory_mb_per_gpu", fallback="80000")
-                )
-                gpu_memory_gb = memory_mb // 1000
+            if torch.cuda.is_available():
+                device = torch.cuda.current_device()
+                props = torch.cuda.get_device_properties(device)
+                gpu_memory_gb = props.total_memory // (1024 ** 3)
             else:
-                gpu_memory_gb = 80  # Default to H100
-        except:
-            gpu_memory_gb = 80  # Fallback to H100
+                gpu_memory_gb = None
+        except Exception as e:
+            logger.warning(f"Could not detect GPU memory via PyTorch: {e}")
+            gpu_memory_gb = None
+        # If still not detected, try config file
+        if gpu_memory_gb is None:
+            try:
+                import configparser
+                from pathlib import Path
+                config_file = Path(__file__).parent.parent / ".config"
+                if config_file.exists():
+                    cluster_config = configparser.ConfigParser()
+                    cluster_config.read(config_file)
+                    memory_mb = int(
+                        cluster_config.get("cluster", "memory_mb_per_gpu", fallback="80000")
+                    )
+                    gpu_memory_gb = memory_mb // 1000
+                else:
+                    gpu_memory_gb = 80  # Default to H100
+            except Exception as e:
+                logger.warning(f"Could not detect GPU memory via config file: {e}")
+                gpu_memory_gb = 80  # Fallback to H100
 
     logger.info(f"Optimizing for GPU with {gpu_memory_gb}GB memory...")
 

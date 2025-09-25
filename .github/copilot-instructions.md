@@ -35,7 +35,7 @@ The Resolution Aware Transformer (RAT) is a PyTorch implementation for multi-sca
 class ISICDataset(Dataset):
     def __init__(self, multi_scale=False, scales=[256, 128, 64]):
         self.scales = scales if multi_scale else [scales[0]]
-    
+
     def __getitem__(self, idx):
         if self.multi_scale:
             return [self.transform_to_scale(image, s) for s in self.scales]
@@ -204,7 +204,7 @@ if not hasattr(parser, '_option_string_actions') or '--deepspeed' not in parser.
     args = deepspeed.add_config_arguments(parser)
 ```
 
-#### 2. Multi-GPU Process Collision 
+#### 2. Multi-GPU Process Collision
 **Error**: Multiple processes starting same experiment simultaneously
 **Symptoms**: Duplicate log entries, garbled output in LSF logs
 ```bash
@@ -254,7 +254,7 @@ python experiments/medical_segmentation/train.py \
 ```yaml
 # Increment parameters in this order:
 # 1. batch_size: 2 → 4 → 8
-# 2. feature_dims: 64 → 128 → 256  
+# 2. feature_dims: 64 → 128 → 256
 # 3. num_blocks: 1 → 2 → 4
 # 4. multi_scale: false → true
 ```
@@ -313,7 +313,7 @@ def validate_config(config):
     required_keys = ['model', 'training', 'data']
     for key in required_keys:
         assert key in config, f"Missing required config section: {key}"
-    
+
     # Check model parameters for memory feasibility
     if config['model']['feature_dims'] > 512 and not config.get('deepspeed'):
         print("Warning: Large feature_dims without DeepSpeed may cause OOM")

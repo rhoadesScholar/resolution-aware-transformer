@@ -14,12 +14,11 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Add common utilities to path
-sys.path.append(str(Path(__file__).parent.parent / "common"))
-from datasets import ISICDataset
-from metrics import SegmentationEvaluator
-from models import load_pretrained_model
-from utils import get_device, set_seed
+# Import common utilities using relative imports
+from ..common.datasets import ISICDataset
+from ..common.metrics import SegmentationEvaluator
+from ..common.models import load_pretrained_model
+from ..common.utils import get_device, set_seed
 
 
 def parse_args():

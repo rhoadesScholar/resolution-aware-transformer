@@ -214,14 +214,13 @@ def run_single_experiment(
     try:
         # Determine evaluation parameters based on experiment type
         robustness_test = exp_type == "robustness_test"
-        test_resolutions = [128, 256, 512] if robustness_test else None
 
         evaluate_rat_with_ray(
             config_path=str(exp_config_path),
             checkpoint_path=checkpoint_path,
-            num_gpus=min(num_gpus, 2),  # Use fewer GPUs for evaluation
+            num_gpus=num_gpus,
             robustness_test=robustness_test,
-            test_resolutions=test_resolutions or DEFAULT_TEST_RESOLUTIONS,
+            test_resolutions=DEFAULT_TEST_RESOLUTIONS,
         )
         evaluation_time = time.time() - eval_start_time
         logger.info(f"Evaluation completed in {evaluation_time/60:.1f} minutes")

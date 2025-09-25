@@ -107,14 +107,6 @@ def run_ablation_study(config, args):
         multi_scale=False,  # Start with single scale
     )
 
-    val_loader = torch.utils.data.DataLoader(
-        val_dataset,
-        batch_size=config["evaluation"]["batch_size"],
-        shuffle=False,
-        num_workers=config["data"].get("num_workers", 4),
-        pin_memory=True,
-    )
-
     if logger:
         logger.info(f"Validation dataset: {len(val_dataset)} samples")
 

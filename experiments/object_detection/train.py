@@ -17,6 +17,10 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from tqdm import tqdm
 import yaml
+import logging
+
+# Initialize module-level logger
+logger = logging.getLogger(__name__)
 
 # DeepSpeed for memory optimization and large model training
 try:
@@ -464,7 +468,7 @@ def main():
         collate_fn=val_dataset.collate_fn,
     )
 
-    if not args.distributed or args.local_rank == 0:
+    if logger:
         logger.info(f"Train dataset: {len(train_dataset)} samples")
         logger.info(f"Val dataset: {len(val_dataset)} samples")
 
@@ -480,7 +484,8 @@ def main():
     scheduler = None
 
     if args.deepspeed and DEEPSPEED_AVAILABLE:
-        logger.info(f"Using DeepSpeed with ZeRO Stage {args.zero_stage}")
+        if logger:
+            logger.info(f"Using DeepSpeed with ZeRO Stage {args.zero_stage}")
 
         # Create DeepSpeed configuration
         deepspeed_config = create_deepspeed_config(
@@ -498,7 +503,8 @@ def main():
         device = model_engine.device
         is_deepspeed = True
 
-        logger.info(f"DeepSpeed initialized with device: {device}")
+        if logger:
+            logger.info(f"DeepSpeed initialized with device: {device}")
 
     else:
         # Standard training setup
@@ -537,10 +543,12 @@ def main():
         else:
             scheduler = None
 
-    if not args.distributed or args.local_rank == 0:
+    if logger:
         if is_deepspeed:
             # For DeepSpeed, parameter counting is more complex due to partitioning
-            logger.info("Model parameters: DeepSpeed partitioned (exact count not available)")
+            logger.info(
+                "Model parameters: DeepSpeed partitioned (exact count not available)"
+            )
         else:
             logger.info(
                 f"Model parameters: "
@@ -575,14 +583,16 @@ def main():
             scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         start_epoch = checkpoint["epoch"] + 1
         best_val_loss = checkpoint["best_val_loss"]
-        if not args.distributed or args.local_rank == 0:
+        if logger:
             logger.info(f"Resumed from epoch {start_epoch}")
 
-    if not args.distributed or args.local_rank == 0:
-        logger.info(f"Starting training for {config['training']['num_epochs']} epochs...")
+    if logger:
+        logger.info(
+            f"Starting training for {config['training']['num_epochs']} epochs..."
+        )
 
     for epoch in range(start_epoch, config["training"]["num_epochs"]):
-        if not args.distributed or args.local_rank == 0:
+        if logger:
             logger.info(f"\nEpoch {epoch + 1}/{config['training']['num_epochs']}")
             logger.info("-" * 50)
 
@@ -620,7 +630,7 @@ def main():
                 all_metrics = {**train_metrics, **val_metrics}
                 tracker.log_metrics(all_metrics, epoch)
 
-            if not args.distributed or args.local_rank == 0:
+            if logger:
                 logger.info(f"Train Loss: {train_metrics['train_loss']:.4f}")
                 logger.info(f"Val Loss: {val_metrics['val_loss']:.4f}")
 

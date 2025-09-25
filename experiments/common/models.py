@@ -19,8 +19,7 @@ try:
     from resolution_aware_transformer import ResolutionAwareTransformer
 except ImportError:
     logger.warning(
-        "Could not import ResolutionAwareTransformer. "
-        "Make sure it's installed."
+        "Could not import ResolutionAwareTransformer. " "Make sure it's installed."
     )
     ResolutionAwareTransformer = None
 

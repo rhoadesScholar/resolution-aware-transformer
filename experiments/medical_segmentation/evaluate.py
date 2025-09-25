@@ -8,6 +8,10 @@ import torch
 from tqdm import tqdm
 import yaml
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 # Add common utilities to path
 sys.path.append(str(Path(__file__).parent.parent / "common"))
 from datasets import ISICDataset
@@ -137,8 +141,12 @@ def main():
     logger.info("\n" + "=" * 50)
     logger.info("EVALUATION RESULTS")
     logger.info("=" * 50)
-    logger.info(f"Dice Coefficient: {metrics['dice']:.4f} ± {metrics.get('dice_std', 0):.4f}")
-    logger.info(f"IoU Score:        {metrics['iou']:.4f} ± {metrics.get('iou_std', 0):.4f}")
+    logger.info(
+        f"Dice Coefficient: {metrics['dice']:.4f} ± {metrics.get('dice_std', 0):.4f}"
+    )
+    logger.info(
+        f"IoU Score:        {metrics['iou']:.4f} ± {metrics.get('iou_std', 0):.4f}"
+    )
     logger.info(f"Sensitivity:      {metrics['sensitivity']:.4f}")
     logger.info(f"Specificity:      {metrics['specificity']:.4f}")
     logger.info()
@@ -194,7 +202,9 @@ def main():
     with open(output_dir / "evaluation_results.json", "w") as f:
         json.dump(detailed_results, f, indent=2)
 
-    logger.info(f"\nDetailed results saved to: {output_dir / 'evaluation_results.json'}")
+    logger.info(
+        f"\nDetailed results saved to: {output_dir / 'evaluation_results.json'}"
+    )
 
 
 if __name__ == "__main__":

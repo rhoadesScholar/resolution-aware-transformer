@@ -9,6 +9,10 @@ import numpy as np
 import torch
 from tqdm import tqdm
 import yaml
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Add common utilities to path
 sys.path.append(str(Path(__file__).parent.parent / "common"))
@@ -355,19 +359,29 @@ def main():
     if "upscaling" in analysis["transfer_analysis"]:
         up_analysis = analysis["transfer_analysis"]["upscaling"]
         logger.info("\nUpscaling Performance:")
-        logger.info(f"  Average degradation: {up_analysis['avg_degradation_percent']:.2f}%")
-        logger.info(f"  Maximum degradation: {up_analysis['max_degradation_percent']:.2f}%")
+        logger.info(
+            f"  Average degradation: {up_analysis['avg_degradation_percent']:.2f}%"
+        )
+        logger.info(
+            f"  Maximum degradation: {up_analysis['max_degradation_percent']:.2f}%"
+        )
 
     if "downscaling" in analysis["transfer_analysis"]:
         down_analysis = analysis["transfer_analysis"]["downscaling"]
         logger.info("\nDownscaling Performance:")
-        logger.info(f"  Average degradation: {down_analysis['avg_degradation_percent']:.2f}%")
-        logger.info(f"  Maximum degradation: {down_analysis['max_degradation_percent']:.2f}%")
+        logger.info(
+            f"  Average degradation: {down_analysis['avg_degradation_percent']:.2f}%"
+        )
+        logger.info(
+            f"  Maximum degradation: {down_analysis['max_degradation_percent']:.2f}%"
+        )
 
     scale_inv = analysis["scale_invariance"]
     logger.info("\nScale Invariance:")
     logger.info(f"  Dice variance: {scale_inv['dice_variance']:.6f}")
-    logger.info(f"  Coefficient of variation: {scale_inv['coefficient_of_variation']:.4f}")
+    logger.info(
+        f"  Coefficient of variation: {scale_inv['coefficient_of_variation']:.4f}"
+    )
     logger.info(f"  Worst-case degradation: {scale_inv['worst_case_degradation']:.2f}%")
 
     efficiency = analysis["efficiency"]

@@ -13,8 +13,10 @@ from typing import Dict, Any, List, Optional
 import logging
 import yaml
 
+# Add parent directory to path and handle imports
 sys.path.append(str(Path(__file__).parent))
-from . import DEFAULT_TEST_RESOLUTIONS
+sys.path.append(str(Path(__file__).parent.parent))
+
 
 # Setup logging
 logging.basicConfig(
@@ -140,7 +142,7 @@ def run_single_experiment(
 ) -> Dict[str, Any]:
     """Run a single experiment with training and evaluation."""
     from ray_train import train_rat_with_ray
-    from ray_evaluate import evaluate_rat_with_ray
+    from ray_evaluate import evaluate_rat_with_ray, DEFAULT_TEST_RESOLUTIONS
 
     # Load and modify config for experiment type
     with open(config_path, "r") as f:

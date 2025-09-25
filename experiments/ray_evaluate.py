@@ -16,7 +16,8 @@ import time
 import numpy as np
 from dataclasses import dataclass
 
-from . import DEFAULT_TEST_RESOLUTIONS
+# Default test resolutions for robustness evaluation
+DEFAULT_TEST_RESOLUTIONS = [128, 256, 512]
 
 # Ray Train imports
 try:
@@ -38,6 +39,12 @@ import yaml
 # Add experiments directory to path
 EXPERIMENTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(EXPERIMENTS_DIR / "common"))
+
+# Import common modules
+from common.datasets import ISICDataset, COCODataset
+from common.models import create_model
+from common.metrics import SegmentationEvaluator, DetectionEvaluator
+from common.utils import get_device, set_seed
 
 # Setup logging
 logging.basicConfig(
@@ -586,7 +593,7 @@ def run_ablation_study(
             task_type = base_config.get("task_type", "segmentation")
 
             if task_type == "segmentation":
-                from datasets import ISICDataset
+                # ISICDataset already imported from common.datasets
 
                 eval_dataset = ISICDataset(
                     data_dir=data_config["local_data_dir"],
@@ -605,7 +612,7 @@ def run_ablation_study(
 
                 metrics = evaluate_segmentation(model, eval_loader, device)
             else:
-                from datasets import COCODataset
+                # COCODataset already imported from common.datasets
 
                 eval_dataset = COCODataset(
                     data_dir=data_config["local_data_dir"],
@@ -639,13 +646,8 @@ def evaluation_function(config: Dict[str, Any]):
     Distributed evaluation function for Ray Train integration.
     """
     # Import here to avoid Ray serialization issues
-    try:
-        from datasets import ISICDataset, COCODataset
-    except ImportError as e:
-        logger.error(f"Could not import datasets: {e}")
-        raise
-
-    from models import create_model
+    # ISICDataset, COCODataset already imported from common.datasets
+    # create_model already imported from common.models
 
     # Get distributed context
     rank = train.get_context().get_local_rank()

@@ -32,7 +32,7 @@ requires-python = ">=3.10"
 dependencies = [
     # Add your core dependencies here
     "torch",
-    "rotary-spatial-embeddings",
+    "rotary-spatial-embeddings>=2025.9.25.1502",
     "spatial-grouping-attention",
     # "multi-res-mossa",
 ]

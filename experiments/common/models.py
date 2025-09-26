@@ -379,78 +379,70 @@ class RATDetectionModel(nn.Module):
 
 # Baseline model implementations for comparison
 class SimpleUNet(nn.Module):
-    """Simple U-Net implementation for baseline comparison."""
+    """U-Net implementation using torch.hub for baseline comparison."""
 
-    def __init__(self, input_channels: int = 3, num_classes: int = 1):
+    def __init__(
+        self,
+        input_channels: int = 3,
+        num_classes: int = 1,
+        init_features: int = 32,
+        pretrained: bool = True,
+    ):
         super().__init__()
 
-        # Encoder
-        self.enc1 = self._conv_block(input_channels, 64)
-        self.enc2 = self._conv_block(64, 128)
-        self.enc3 = self._conv_block(128, 256)
-        self.enc4 = self._conv_block(256, 512)
+        try:
+            # Load UNet from torch hub (brain-segmentation-pytorch)
+            self.unet = torch.hub.load(
+                "mateuszbuda/brain-segmentation-pytorch",
+                "unet",
+                in_channels=input_channels,
+                out_channels=num_classes,
+                init_features=init_features,
+                pretrained=pretrained,
+                trust_repo=True,  # Required for loading from external repos
+            )
+            logger.info(
+                f"Loaded UNet from torch.hub with {input_channels} input channels, {num_classes} output classes"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to load UNet from torch.hub: {e}")
+            logger.info("Falling back to simple UNet implementation")
+            # Fallback to a minimal UNet implementation
+            self.unet = self._create_simple_unet(input_channels, num_classes)
 
-        # Bottleneck
-        self.bottleneck = self._conv_block(512, 1024)
-
-        # Decoder
-        self.dec4 = self._upconv_block(1024, 512)
-        self.dec3 = self._upconv_block(512, 256)
-        self.dec2 = self._upconv_block(256, 128)
-        self.dec1 = self._upconv_block(128, 64)
-
-        # Output
-        self.final_conv = nn.Conv2d(64, num_classes, kernel_size=1)
-
-        self.pool = nn.MaxPool2d(2)
-
-    def _conv_block(self, in_channels: int, out_channels: int) -> nn.Module:
+    def _create_simple_unet(self, input_channels: int, num_classes: int) -> nn.Module:
+        """Fallback simple UNet implementation."""
         return nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, padding=1),
-            nn.BatchNorm2d(out_channels),
+            # Simple encoder-decoder structure
+            nn.Conv2d(input_channels, 64, 3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(out_channels, out_channels, 3, padding=1),
-            nn.BatchNorm2d(out_channels),
+            nn.Conv2d(64, 64, 3, padding=1),
             nn.ReLU(inplace=True),
-        )
-
-    def _upconv_block(self, in_channels: int, out_channels: int) -> nn.Module:
-        return nn.Sequential(
-            nn.ConvTranspose2d(in_channels, out_channels, 2, stride=2),
-            nn.BatchNorm2d(out_channels),
+            nn.MaxPool2d(2),
+            nn.Conv2d(64, 128, 3, padding=1),
             nn.ReLU(inplace=True),
+            nn.Conv2d(128, 128, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2),
+            # Bottleneck
+            nn.Conv2d(128, 256, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, 3, padding=1),
+            nn.ReLU(inplace=True),
+            # Simple decoder (upsampling + conv)
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            nn.Conv2d(256, 128, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(128, 64, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            nn.Conv2d(64, 64, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, num_classes, 1),
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Encoder
-        e1 = self.enc1(x)
-        e2 = self.enc2(self.pool(e1))
-        e3 = self.enc3(self.pool(e2))
-        e4 = self.enc4(self.pool(e3))
-
-        # Bottleneck
-        b = self.bottleneck(self.pool(e4))
-
-        # Decoder with skip connections
-        d4 = self.dec4(b)
-        d4 = torch.cat([d4, e4], dim=1)
-        d4 = self._conv_block(d4.shape[1], 512)(d4)
-
-        d3 = self.dec3(d4)
-        d3 = torch.cat([d3, e3], dim=1)
-        d3 = self._conv_block(d3.shape[1], 256)(d3)
-
-        d2 = self.dec2(d3)
-        d2 = torch.cat([d2, e2], dim=1)
-        d2 = self._conv_block(d2.shape[1], 128)(d2)
-
-        d1 = self.dec1(d2)
-        d1 = torch.cat([d1, e1], dim=1)
-        d1 = self._conv_block(d1.shape[1], 64)(d1)
-
-        # Output
-        output = self.final_conv(d1)
-        return output
+        return self.unet(x)
 
 
 def create_model(model_name: str, task: str, num_classes: int, **kwargs) -> nn.Module:
@@ -484,7 +476,16 @@ def create_model(model_name: str, task: str, num_classes: int, **kwargs) -> nn.M
 
     elif model_name == "unet":
         if task == "segmentation":
-            return SimpleUNet(num_classes=num_classes)
+            # Extract UNet-specific parameters
+            input_channels = filtered_kwargs.get("input_features", 3)
+            init_features = filtered_kwargs.get("init_features", 32)
+            pretrained = filtered_kwargs.get("pretrained", True)
+            return SimpleUNet(
+                input_channels=input_channels,
+                num_classes=num_classes,
+                init_features=init_features,
+                pretrained=pretrained,
+            )
         else:
             raise ValueError(f"U-Net only supports segmentation, got: {task}")
 
@@ -600,8 +601,8 @@ def save_model(
         optimizer: Optimizer state (optional)
         metrics: Training metrics (optional)
     """
-    save_path = Path(save_path)
-    save_path.parent.mkdir(parents=True, exist_ok=True)
+    save_path_obj = Path(save_path)
+    save_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
     checkpoint = {
         "epoch": epoch,
@@ -614,8 +615,8 @@ def save_model(
     if metrics is not None:
         checkpoint["metrics"] = metrics
 
-    torch.save(checkpoint, save_path)
-    logger.info(f"Saved model checkpoint to {save_path}")
+    torch.save(checkpoint, save_path_obj)
+    logger.info(f"Saved model checkpoint to {save_path_obj}")
 
 
 # Model configurations for different experiments
@@ -643,6 +644,18 @@ MODEL_CONFIGS = {
         "num_blocks": 4,
         "num_heads": 16,
         "attention_type": "sparse",
+    },
+    "unet_small": {
+        "init_features": 16,
+        "pretrained": True,
+    },
+    "unet_base": {
+        "init_features": 32,
+        "pretrained": True,
+    },
+    "unet_large": {
+        "init_features": 64,
+        "pretrained": False,  # Use larger model without pretrained weights
     },
 }
 

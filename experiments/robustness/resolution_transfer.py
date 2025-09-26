@@ -1,6 +1,7 @@
 """Resolution transfer testing - train on one resolution, test on others."""
 
 import argparse
+import os
 from pathlib import Path
 import sys
 
@@ -64,7 +65,7 @@ def evaluate_at_resolution(model, data_dir, resolution, config, device):
         dataset,
         batch_size=min(16, 64 // (resolution // 128)),  # Adjust batch size for memory
         shuffle=False,
-        num_workers=4,
+        num_workers=os.cpu_count() // 2,
         pin_memory=True,
     )
 

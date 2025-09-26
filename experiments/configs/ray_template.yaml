@@ -44,7 +44,7 @@ data:
   
   # Data preprocessing
   image_size: 256  # Base resolution
-  num_workers: 4   # Data loading workers
+  # num_workers: 4   # Data loading workers
   pin_memory: true
 
 # Evaluation configuration

@@ -6,6 +6,7 @@ helpers for both Ray and DeepSpeed. The module is designed to facilitate large-s
 minimal manual intervention, supporting both 2D and 3D data, and integrating with common datasets such as ISIC.
 """
 
+import os
 import sys
 import shutil
 import subprocess
@@ -490,6 +491,166 @@ def _dataset_exists(dataset_name: str, local_path: Path) -> bool:
     return False
 
 
+def _robust_download_file(
+    url: str,
+    file_path: Path,
+    timeout: int,
+    expected_size_mb: float,
+    max_retries: int = 3,
+    chunk_size: int = 8192 * 8,  # 64KB chunks for better performance
+) -> bool:
+    """
+    Robustly download a file with retry logic, resume capability, and integrity checks.
+
+    Args:
+        url: Download URL
+        file_path: Target file path
+        timeout: Connection timeout in seconds
+        expected_size_mb: Expected file size in MB for validation
+        max_retries: Maximum number of retry attempts
+        chunk_size: Download chunk size in bytes
+
+    Returns:
+        True if download succeeded, False otherwise
+    """
+    import hashlib
+    import time
+
+    for attempt in range(max_retries + 1):
+        try:
+            # Check if we have a partial download to resume
+            resume_pos = 0
+            if file_path.exists():
+                resume_pos = file_path.stat().st_size
+                logger.info(f"    Resuming download from byte {resume_pos}")
+
+            # Set up headers for resume if needed
+            headers = {}
+            if resume_pos > 0:
+                headers["Range"] = f"bytes={resume_pos}-"
+                mode = "ab"  # append binary
+            else:
+                mode = "wb"  # write binary
+
+            # Make request with longer timeout for large files
+            from requests.adapters import HTTPAdapter
+
+            session = requests.Session()
+            session.mount("http://", HTTPAdapter(max_retries=2))
+            session.mount("https://", HTTPAdapter(max_retries=2))
+
+            response = session.get(
+                url,
+                stream=True,
+                timeout=(30, timeout),  # (connect_timeout, read_timeout)
+                headers=headers,
+            )
+            response.raise_for_status()
+
+            # Get total file size from headers
+            if "content-length" in response.headers:
+                total_size = int(response.headers["content-length"])
+                if resume_pos > 0:
+                    total_size += resume_pos
+            else:
+                total_size = int(expected_size_mb * 1024 * 1024)  # Estimate
+
+            logger.info(f"    Downloading {total_size / (1024*1024):.1f}MB...")
+
+            # Download with progress tracking
+            downloaded = resume_pos
+            last_log_time = time.time()
+
+            with open(file_path, mode) as f:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if chunk:  # filter out keep-alive chunks
+                        f.write(chunk)
+                        downloaded += len(chunk)
+
+                        # Log progress every 30 seconds
+                        current_time = time.time()
+                        if current_time - last_log_time > 30:
+                            progress = (
+                                (downloaded / total_size) * 100 if total_size > 0 else 0
+                            )
+                            mb_downloaded = downloaded / (1024 * 1024)
+                            logger.info(
+                                f"    Progress: {progress:.1f}% ({mb_downloaded:.1f}MB)"
+                            )
+                            last_log_time = current_time
+
+            # Verify download completeness
+            final_size = file_path.stat().st_size
+            final_size_mb = final_size / (1024 * 1024)
+
+            logger.info(f"    Downloaded {final_size_mb:.1f}MB")
+
+            # Basic size validation (allow some tolerance)
+            expected_bytes = expected_size_mb * 1024 * 1024
+            if abs(final_size - expected_bytes) > (
+                expected_bytes * 0.1
+            ):  # 10% tolerance
+                logger.warning(
+                    f"    Size mismatch: got {final_size_mb:.1f}MB, expected ~{expected_size_mb:.1f}MB"
+                )
+
+            # Verify the file is a valid zip if it should be
+            if file_path.suffix.lower() == ".zip":
+                try:
+                    with zipfile.ZipFile(file_path, "r") as zf:
+                        # Test zip integrity
+                        bad_file = zf.testzip()
+                        if bad_file:
+                            raise zipfile.BadZipFile(
+                                f"Corrupted file in zip: {bad_file}"
+                            )
+                    logger.info(f"    ✓ Zip file integrity verified")
+                except zipfile.BadZipFile as e:
+                    logger.warning(f"    ✗ Zip file corrupted: {e}")
+                    if attempt < max_retries:
+                        logger.info(
+                            f"    Retrying download (attempt {attempt + 2}/{max_retries + 1})"
+                        )
+                        file_path.unlink()  # Remove corrupted file
+                        time.sleep(2**attempt)  # Exponential backoff
+                        continue
+                    return False
+
+            return True
+
+        except requests.exceptions.Timeout as e:
+            logger.warning(
+                f"    Timeout error (attempt {attempt + 1}/{max_retries + 1}): {e}"
+            )
+        except requests.exceptions.ConnectionError as e:
+            logger.warning(
+                f"    Connection error (attempt {attempt + 1}/{max_retries + 1}): {e}"
+            )
+        except requests.exceptions.RequestException as e:
+            logger.warning(
+                f"    Request error (attempt {attempt + 1}/{max_retries + 1}): {e}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"    Unexpected error (attempt {attempt + 1}/{max_retries + 1}): {e}"
+            )
+
+        # Clean up partial download on error (except for the last attempt where we might want to inspect it)
+        if attempt < max_retries and file_path.exists():
+            try:
+                file_path.unlink()
+            except:
+                pass
+
+        # Exponential backoff before retry
+        if attempt < max_retries:
+            wait_time = 2**attempt
+            logger.info(f"    Waiting {wait_time}s before retry...")
+            time.sleep(wait_time)
+
+    return False
+
+
 def _download_isic2018(
     local_path: Path,
     network_speed: float = 10.0,
@@ -509,7 +670,7 @@ def _download_isic2018(
     logger.info("ISIC 2018 Task 1 dataset download information:")
     logger.info("  Dataset: ISIC 2018 Challenge Task 1 (Lesion Boundary Segmentation)")
     logger.info("  Training: 2594 images + segmentation masks")
-    logger.info("  Validation: 1000 images + segmentation masks")
+    logger.info("  Validation: 100 images + segmentation masks")
     logger.info("  Total size: ~2.5GB")
     logger.info("")
     logger.info("Official download sources:")
@@ -634,24 +795,25 @@ def _download_official_isic2018_files(
 
             timeout = calculate_download_timeout(file_size, network_speed, config)
 
-            # Try multiple URLs until one works
+            # Try robust download with retries
             downloaded = False
             for url in file_info["urls"]:
                 try:
                     logger.info(f"  Trying URL: {url} (timeout: {timeout}s)")
-                    response = requests.get(url, stream=True, timeout=timeout)
-                    response.raise_for_status()
-
-                    with open(file_path, "wb") as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            f.write(chunk)
-
-                    logger.info(f"  ✓ Downloaded {file_info['filename']} from {url}")
-                    downloaded = True
-                    break
-
+                    if _robust_download_file(url, file_path, timeout, file_size):
+                        logger.info(
+                            f"  ✓ Downloaded {file_info['filename']} from {url}"
+                        )
+                        downloaded = True
+                        break
                 except Exception as e:
                     logger.warning(f"  ✗ Failed to download from {url}: {e}")
+                    # Clean up partial download
+                    if file_path.exists():
+                        try:
+                            file_path.unlink()
+                        except:
+                            pass
                     continue
 
             if not downloaded:
@@ -841,11 +1003,44 @@ def _verify_isic_dataset(local_path: Path) -> bool:
         logger.info(f"  Validation images: {len(val_images)}")
         logger.info(f"  Validation masks: {len(val_masks)}")
 
-        # ISIC 2018 should have ~2594 training images and ~1000 validation images
-        if len(train_images) < 1000 or len(val_images) < 500:
-            logger.warning("Dataset appears smaller than expected")
+        # ISIC 2018 Task 1 dataset size validation
+        # Training set: ~2594 images, Validation set: ~100 images (not 1000 as commonly misquoted)
+        # Note: ISIC 2018 Task 1 validation set is smaller than Task 2 validation set
+
+        # Check that we have reasonable amounts of data
+        train_valid = len(train_images) >= 1000 and len(train_masks) >= 1000
+        val_valid = (
+            len(val_images) >= 50 and len(val_masks) >= 50
+        )  # Adjusted for actual ISIC 2018 Task 1 size
+
+        # Check that image and mask counts match
+        counts_match = len(train_images) == len(train_masks) and len(val_images) == len(
+            val_masks
+        )
+
+        if not train_valid:
+            logger.error(
+                f"Training set too small: {len(train_images)} images, {len(train_masks)} masks (expected ≥1000 each)"
+            )
             return False
 
+        if not val_valid:
+            logger.error(
+                f"Validation set too small: {len(val_images)} images, {len(val_masks)} masks (expected ≥50 each)"
+            )
+            return False
+
+        if not counts_match:
+            logger.error("Mismatch between image and mask counts")
+            return False
+
+        # Log actual dataset size info
+        if len(val_images) < 200:
+            logger.info(
+                "Note: ISIC 2018 Task 1 validation set contains ~100 images (smaller than Task 2)"
+            )
+
+        logger.info("✓ Dataset verification passed")
         return True
 
     except Exception as e:
@@ -1117,7 +1312,7 @@ def train_function(config: Dict[str, Any]):
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=data_config.get("num_workers", 4),
+        num_workers=data_config.get("num_workers", os.cpu_count() // 2),
         pin_memory=True,
         drop_last=True,  # Ensure consistent batch sizes for gradient accumulation
     )
@@ -1126,7 +1321,7 @@ def train_function(config: Dict[str, Any]):
         val_dataset,
         batch_size=batch_size * 2,  # Larger batch size for validation
         shuffle=False,
-        num_workers=data_config.get("num_workers", 4),
+        num_workers=data_config.get("num_workers", os.cpu_count() // 2),
         pin_memory=True,
     )
 

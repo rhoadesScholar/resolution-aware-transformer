@@ -19,7 +19,7 @@ data:
   local_data_dir: "/tmp/datasets/isic2018"  # Local storage for datasets
   image_size: 256
   scales: [256, 128, 64]  # Multi-scale processing
-  num_workers: 4
+  # num_workers: 4
   train_split: "train"
   val_split: "val"
   

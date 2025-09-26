@@ -16,7 +16,7 @@ data:
   local_data_dir: "/tmp/datasets/isic2018"  # Local storage for datasets
   train_resolution: 256
   test_resolutions: [128, 256, 512, 1024]  # Test at multiple resolutions
-  num_workers: 4
+  # num_workers: 4
   train_split: "train"
   val_split: "val"
   test_split: "test"

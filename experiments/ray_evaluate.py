@@ -539,7 +539,7 @@ def evaluate_at_multiple_resolutions(
             eval_dataset,
             batch_size=eval_config.get("batch_size", 8),
             shuffle=False,
-            num_workers=eval_config.get("num_workers", 4),
+            num_workers=eval_config.get("num_workers", os.cpu_count() // 2),
             pin_memory=True,
         )
 
@@ -606,7 +606,7 @@ def run_ablation_study(
                     eval_dataset,
                     batch_size=data_config.get("batch_size", 8),
                     shuffle=False,
-                    num_workers=data_config.get("num_workers", 4),
+                    num_workers=data_config.get("num_workers", os.cpu_count() // 2),
                     pin_memory=True,
                 )
 
@@ -625,7 +625,7 @@ def run_ablation_study(
                     eval_dataset,
                     batch_size=data_config.get("batch_size", 4),
                     shuffle=False,
-                    num_workers=data_config.get("num_workers", 4),
+                    num_workers=data_config.get("num_workers", os.cpu_count() // 2),
                     pin_memory=True,
                 )
 
@@ -706,7 +706,7 @@ def evaluation_function(config: Dict[str, Any]):
         eval_dataset,
         batch_size=eval_config.get("batch_size", 8),
         shuffle=False,
-        num_workers=data_config.get("num_workers", 4),
+        num_workers=data_config.get("num_workers", os.cpu_count() // 2),
         pin_memory=True,
     )
 

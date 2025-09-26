@@ -16,7 +16,7 @@ data:
   local_data_dir: "/tmp/datasets/coco2017"  # Local storage for datasets
   image_size: 800
   max_size: 1333
-  num_workers: 8
+  # num_workers: 8
   train_split: "train2017"
   val_split: "val2017"
   

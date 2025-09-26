@@ -5,6 +5,7 @@ import json
 import logging
 
 logger = logging.getLogger(__name__)
+import os
 from pathlib import Path
 import random
 from typing import Any, Dict, Optional
@@ -148,7 +149,7 @@ def adjust_config_for_gpu_memory(
             if torch.cuda.is_available():
                 device = torch.cuda.current_device()
                 props = torch.cuda.get_device_properties(device)
-                gpu_memory_gb = props.total_memory // (1024 ** 3)
+                gpu_memory_gb = props.total_memory // (1024**3)
             else:
                 gpu_memory_gb = None
         except Exception as e:
@@ -159,12 +160,15 @@ def adjust_config_for_gpu_memory(
             try:
                 import configparser
                 from pathlib import Path
+
                 config_file = Path(__file__).parent.parent / ".config"
                 if config_file.exists():
                     cluster_config = configparser.ConfigParser()
                     cluster_config.read(config_file)
                     memory_mb = int(
-                        cluster_config.get("cluster", "memory_mb_per_gpu", fallback="80000")
+                        cluster_config.get(
+                            "cluster", "memory_mb_per_gpu", fallback="80000"
+                        )
                     )
                     gpu_memory_gb = memory_mb // 1000
                 else:
@@ -252,7 +256,7 @@ def adjust_config_for_gpu_memory(
     # Optimize number of workers based on batch size and memory
     optimal_workers = min(20, max(4, optimal_batch // 2))
     if "data" in config:
-        old_workers = config["data"].get("num_workers", 4)
+        old_workers = config["data"].get("num_workers", os.cpu_count() // 2)
         config["data"]["num_workers"] = optimal_workers
         logger.info(f"Data workers: {old_workers} → {optimal_workers}")
 
@@ -262,6 +266,9 @@ def adjust_config_for_gpu_memory(
 # Keep the old function for backward compatibility but mark as deprecated
 def adjust_config_for_h200(config: Dict[str, Any]) -> Dict[str, Any]:
     """Deprecated: Use adjust_config_for_gpu_memory() instead."""
+    DeprecationWarning(
+        "adjust_config_for_h200() is deprecated. Use adjust_config_for_gpu_memory() instead."
+    )
     return adjust_config_for_gpu_memory(config, gpu_memory_gb=140)
 
 

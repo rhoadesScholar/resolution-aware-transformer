@@ -246,7 +246,7 @@ def run_ablation_study(config, args):
                     batch_size=config["evaluation"]["batch_size"]
                     // 2,  # Smaller batch for multi-scale
                     shuffle=False,
-                    num_workers=config["data"].get("num_workers", 4),
+                    num_workers=config["data"].get("num_workers", os.cpu_count() // 2),
                     pin_memory=True,
                 )
                 current_loader = val_loader_ms
@@ -266,7 +266,7 @@ def run_ablation_study(config, args):
                     val_dataset,
                     batch_size=batch_size,
                     shuffle=False,
-                    num_workers=config["data"].get("num_workers", 4),
+                    num_workers=config["data"].get("num_workers", os.cpu_count() // 2),
                     pin_memory=True,
                 )
                 current_loader = val_loader_memory_adjusted

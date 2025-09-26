@@ -51,6 +51,7 @@ experiments = [
     "seaborn>=0.11",
     "deepspeed>=0.5",
     "ray[train]",
+    "torchmetrics[detection]",
 ]
 dev = [
     "pytest>=6.0",

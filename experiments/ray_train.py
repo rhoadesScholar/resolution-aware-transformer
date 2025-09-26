@@ -88,13 +88,12 @@ def get_gpu_memory_info() -> Dict[str, float]:
         return {"total_memory": 8.0, "available_memory": 6.0}
 
 
-def estimate_model_memory(model_config: Dict[str, Any], spatial_dims: int = 2) -> float:
+def estimate_model_memory(model_config: Dict[str, Any]) -> float:
     """
     Estimate model memory usage in GB based on configuration.
 
     Args:
         model_config: Model configuration dictionary
-        spatial_dims: Number of spatial dimensions (2 or 3)
 
     Returns:
         Estimated memory usage in GB

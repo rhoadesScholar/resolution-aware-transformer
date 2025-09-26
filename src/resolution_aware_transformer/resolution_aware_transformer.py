@@ -21,45 +21,52 @@ class ResolutionAwareTransformer(torch.nn.Module):
         proj_padding: Padding for the initial projection layer. Default is "same".
         feature_dims: The dimensionality of the embedding space.
         num_blocks: The number of spatial grouping attention and
-                    mixture of sparse spatial attention pairs
+            mixture of sparse spatial attention pairs
         sga_attention_type: The type of spatial grouping layer attention
-                        (default is "dense"). Options are "dense" or "sparse"
-        sga_kernel_size: Size of the convolutional kernel for strided
-                     convolutions producing the lower res embeddings in each
-                     spatial grouping attention layer
+            (default is "dense"). Options are "dense" or "sparse"
+        sga_kernel_size: Size of the convolutional kernel for strided convolutions
+            producing the lower res embeddings in each spatial grouping attention layer
         stride: Stride for the spatial grouping attention layer strided convolutions
-                (default is half kernel size)
+            (default is half kernel size)
         num_heads: Number of attention heads
         iters: Number of iterations for the spatial grouping attention mechanism
-               (default is 3)
+            (default is 3)
         mlp_ratio: Ratio of hidden to input/output dimensions in MLPs
-                   (default is 4)
+            (default is 4)
         mlp_dropout: Dropout rate for MLPs (default is 0.0)
         mlp_bias: Whether to use bias in MLPs (default is True)
         mlp_activation: Activation function for MLPs (default is GELU)
-        qkv_bias: Whether to use bias in the query/key/value linear
-                  layers (default is True)
+        qkv_bias: Whether to use bias in the query/key/value linear layers
+            (default is True)
         base_theta: Base theta value for the rotary position embedding
-                    (default is 1e4)
+            (default is 1e4)
         learnable_rose: Whether to use learnable rotary spatial embeddings
-                        (default is True)
-        learnable_rose_scaling: Whether to use learnable scaling factors
-                                for the rotary spatial embeddings (default is True)
+            (default is True)
+        learnable_rose_scaling: Whether to use learnable scaling for the rotary spatial embeddings (default is True).
+            If True, the model learns a scaling factor for each spatial dimension,
+            allowing the rotary spatial embeddings to adapt to the data. This can
+            improve performance when the spatial frequency content varies across
+            datasets or tasks. Set to False to use fixed scaling.
         rose_log_scaling: Whether to use log scaling for the rotary spatial embeddings
-                          (default is True)
+            (default is True).
+            If True, the scaling factors for the rotary spatial embeddings are
+            parameterized in log-space, which can improve stability and allow for
+            a wider dynamic range. Set to False to use linear scaling.
         init_jitter_std: Standard deviation for initial jitter in the rotary
-                         embeddings (default is 0.02)
+            embeddings (default is 0.02).
+            Controls the amount of random noise added to the initial rotary
+            spatial embeddings. Increasing this value can help with exploration
+            during training, but may make convergence slower.
         rotary_ratio: Fraction of the feature dimension to rotate
         frequency_scaling: Frequency scaling method for the rotary position embedding
-                        (default is "sqrt")
+            (default is "sqrt")
         leading_tokens: Number of context tokens to prepend to input sequences.
-        Useful for CLS or buffer tokens, for example. These tokens are not
-        rotated during rotational position embedding and not included in spatial
-        grouping attention.
+            Useful for CLS or buffer tokens, for example. These tokens are not
+            rotated during rotational position embedding and not included in spatial
+            grouping attention.
         spacing: Default real-world pixel spacing for the input data
-                 (default is None, which uses a default spacing of 1.0 for
-                 all dimensions). Can be specified at initialization or passed
-                 during the forward pass.
+            (default is None, which uses a default spacing of 1.0 for all dimensions).
+            Can be specified at initialization or passed during the forward pass.
     """
 
     def __init__(

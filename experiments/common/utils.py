@@ -263,15 +263,6 @@ def adjust_config_for_gpu_memory(
     return config
 
 
-# Keep the old function for backward compatibility but mark as deprecated
-def adjust_config_for_h200(config: Dict[str, Any]) -> Dict[str, Any]:
-    """Deprecated: Use adjust_config_for_gpu_memory() instead."""
-    DeprecationWarning(
-        "adjust_config_for_h200() is deprecated. Use adjust_config_for_gpu_memory() instead."
-    )
-    return adjust_config_for_gpu_memory(config, gpu_memory_gb=140)
-
-
 def load_config(config_path: str) -> Dict[str, Any]:
     """Load experiment configuration."""
     with open(config_path, "r") as f:

@@ -174,21 +174,272 @@ def mean_average_precision(
     Returns:
         Dictionary with mAP metrics
     """
-    # This is a placeholder implementation
-    # In practice, you would use torchmetrics.MeanAveragePrecision or pycocotools
-    warnings.warn(
-        "This is a simplified mAP implementation. Use torchmetrics for production."
-    )
+    if len(pred_boxes) == 0 or len(target_boxes) == 0:
+        return {
+            "mAP": 0.0,
+            "mAP_50": 0.0,
+            "mAP_75": 0.0,
+            "mAP_small": 0.0,
+            "mAP_medium": 0.0,
+            "mAP_large": 0.0,
+        }
 
-    # For now, return dummy values - replace with actual implementation
-    return {
-        "mAP": 0.0,
-        "mAP_50": 0.0,
-        "mAP_75": 0.0,
-        "mAP_small": 0.0,
-        "mAP_medium": 0.0,
-        "mAP_large": 0.0,
-    }
+    # Collect all unique labels
+    all_labels = set()
+    for labels in target_labels:
+        if len(labels) > 0:
+            all_labels.update(labels.tolist())
+    for labels in pred_labels:
+        if len(labels) > 0:
+            all_labels.update(labels.tolist())
+
+    if not all_labels:
+        return {
+            "mAP": 0.0,
+            "mAP_50": 0.0,
+            "mAP_75": 0.0,
+            "mAP_small": 0.0,
+            "mAP_medium": 0.0,
+            "mAP_large": 0.0,
+        }
+
+    # Calculate AP for each class
+    aps_by_class = {}
+
+    for class_id in all_labels:
+        # Collect all predictions and targets for this class
+        class_pred_boxes = []
+        class_pred_scores = []
+        class_target_boxes = []
+
+        for i in range(len(pred_boxes)):
+            # Predictions for this class
+            if len(pred_labels[i]) > 0:
+                class_mask = pred_labels[i] == class_id
+                if class_mask.any():
+                    class_pred_boxes.append(pred_boxes[i][class_mask])
+                    class_pred_scores.append(pred_scores[i][class_mask])
+
+            # Targets for this class
+            if len(target_labels[i]) > 0:
+                target_mask = target_labels[i] == class_id
+                if target_mask.any():
+                    class_target_boxes.append(target_boxes[i][target_mask])
+
+        if not class_pred_boxes or not class_target_boxes:
+            aps_by_class[class_id] = 0.0
+            continue
+
+        # Concatenate all predictions
+        all_pred_boxes = torch.cat(class_pred_boxes, dim=0)
+        all_pred_scores = torch.cat(class_pred_scores, dim=0)
+        all_target_boxes = torch.cat(class_target_boxes, dim=0)
+
+        # Sort predictions by score (descending)
+        sorted_indices = torch.argsort(all_pred_scores, descending=True)
+        sorted_boxes = all_pred_boxes[sorted_indices]
+        sorted_scores = all_pred_scores[sorted_indices]
+
+        # Calculate AP for this class
+        num_targets = len(all_target_boxes)
+        tp = torch.zeros(len(sorted_boxes))
+        fp = torch.zeros(len(sorted_boxes))
+
+        # Track which targets have been matched
+        matched_targets = torch.zeros(num_targets, dtype=torch.bool)
+
+        for i, pred_box in enumerate(sorted_boxes):
+            # Calculate IoU with all target boxes
+            ious = box_iou(pred_box.unsqueeze(0), all_target_boxes).squeeze(0)
+
+            # Find best matching target
+            best_iou, best_idx = torch.max(ious, dim=0)
+
+            if best_iou >= iou_threshold and not matched_targets[best_idx]:
+                tp[i] = 1
+                matched_targets[best_idx] = True
+            else:
+                fp[i] = 1
+
+        # Calculate precision and recall
+        tp_cumsum = torch.cumsum(tp, dim=0)
+        fp_cumsum = torch.cumsum(fp, dim=0)
+
+        precision = tp_cumsum / (tp_cumsum + fp_cumsum + 1e-8)
+        recall = tp_cumsum / (num_targets + 1e-8)
+
+        # Calculate AP using trapezoidal rule
+        ap = 0.0
+        for i in range(1, len(recall)):
+            ap += (recall[i] - recall[i - 1]) * precision[i]
+
+        aps_by_class[class_id] = float(ap)
+
+    # Calculate mAP
+    if aps_by_class:
+        map_score = sum(aps_by_class.values()) / len(aps_by_class)
+    else:
+        map_score = 0.0
+
+        # Calculate mAP at different IoU thresholds
+        map_50 = _mean_average_precision_at_threshold(
+            pred_boxes,
+            pred_scores,
+            pred_labels,
+            target_boxes,
+            target_labels,
+            iou_threshold=0.5,
+        )
+        map_75 = _mean_average_precision_at_threshold(
+            pred_boxes,
+            pred_scores,
+            pred_labels,
+            target_boxes,
+            target_labels,
+            iou_threshold=0.75,
+        )
+
+        # For small/medium/large, filter boxes by area and compute mAP for each category
+        def filter_by_area(boxes, min_area, max_area):
+            areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+            mask = (areas >= min_area) & (areas < max_area)
+            return mask
+
+        # COCO area thresholds (pixels)
+        SMALL_MAX = 32**2
+        MEDIUM_MIN = 32**2
+        MEDIUM_MAX = 96**2
+        LARGE_MIN = 96**2
+
+        def mAP_area(area_min, area_max):
+            filtered_pred_boxes = []
+            filtered_pred_scores = []
+            filtered_pred_labels = []
+            filtered_target_boxes = []
+            filtered_target_labels = []
+
+            for pb, ps, pl, tb, tl in zip(
+                pred_boxes, pred_scores, pred_labels, target_boxes, target_labels
+            ):
+                pred_mask = (
+                    filter_by_area(pb, area_min, area_max)
+                    if pb.numel() > 0
+                    else torch.zeros(pb.shape[0], dtype=torch.bool)
+                )
+                target_mask = (
+                    filter_by_area(tb, area_min, area_max)
+                    if tb.numel() > 0
+                    else torch.zeros(tb.shape[0], dtype=torch.bool)
+                )
+                filtered_pred_boxes.append(pb[pred_mask])
+                filtered_pred_scores.append(ps[pred_mask])
+                filtered_pred_labels.append(pl[pred_mask])
+                filtered_target_boxes.append(tb[target_mask])
+                filtered_target_labels.append(tl[target_mask])
+
+            return _mean_average_precision_at_threshold(
+                filtered_pred_boxes,
+                filtered_pred_scores,
+                filtered_pred_labels,
+                filtered_target_boxes,
+                filtered_target_labels,
+                iou_threshold=0.5,
+            )
+
+        map_small = mAP_area(0, SMALL_MAX)
+        map_medium = mAP_area(MEDIUM_MIN, MEDIUM_MAX)
+        map_large = mAP_area(LARGE_MIN, float("inf"))
+
+        return {
+            "mAP": map_score,
+            "mAP_50": map_50,
+            "mAP_75": map_75,
+            "mAP_small": map_small,
+            "mAP_medium": map_medium,
+            "mAP_large": map_large,
+        }
+
+    def _mean_average_precision_at_threshold(
+        pred_boxes: List[torch.Tensor],
+        pred_scores: List[torch.Tensor],
+        pred_labels: List[torch.Tensor],
+        target_boxes: List[torch.Tensor],
+        target_labels: List[torch.Tensor],
+        iou_threshold: float,
+    ) -> float:
+        """
+        Helper to compute mAP at a specific IoU threshold.
+        """
+        # Collect all unique labels
+        all_labels = set()
+        for labels in target_labels:
+            if len(labels) > 0:
+                all_labels.update(labels.tolist())
+        for labels in pred_labels:
+            if len(labels) > 0:
+                all_labels.update(labels.tolist())
+
+        if not all_labels:
+            return 0.0
+
+        aps_by_class = {}
+
+        for class_id in all_labels:
+            class_pred_boxes = []
+            class_pred_scores = []
+            class_target_boxes = []
+
+            for i in range(len(pred_boxes)):
+                if len(pred_labels[i]) > 0:
+                    class_mask = pred_labels[i] == class_id
+                    if class_mask.any():
+                        class_pred_boxes.append(pred_boxes[i][class_mask])
+                        class_pred_scores.append(pred_scores[i][class_mask])
+                if len(target_labels[i]) > 0:
+                    target_mask = target_labels[i] == class_id
+                    if target_mask.any():
+                        class_target_boxes.append(target_boxes[i][target_mask])
+
+            if not class_pred_boxes or not class_target_boxes:
+                aps_by_class[class_id] = 0.0
+                continue
+
+            all_pred_boxes = torch.cat(class_pred_boxes, dim=0)
+            all_pred_scores = torch.cat(class_pred_scores, dim=0)
+            all_target_boxes = torch.cat(class_target_boxes, dim=0)
+
+            sorted_indices = torch.argsort(all_pred_scores, descending=True)
+            sorted_boxes = all_pred_boxes[sorted_indices]
+            sorted_scores = all_pred_scores[sorted_indices]
+
+            num_targets = len(all_target_boxes)
+            tp = torch.zeros(len(sorted_boxes))
+            fp = torch.zeros(len(sorted_boxes))
+            matched_targets = torch.zeros(num_targets, dtype=torch.bool)
+
+            for i, pred_box in enumerate(sorted_boxes):
+                ious = box_iou(pred_box.unsqueeze(0), all_target_boxes).squeeze(0)
+                best_iou, best_idx = torch.max(ious, dim=0)
+                if best_iou >= iou_threshold and not matched_targets[best_idx]:
+                    tp[i] = 1
+                    matched_targets[best_idx] = True
+                else:
+                    fp[i] = 1
+
+            tp_cumsum = torch.cumsum(tp, dim=0)
+            fp_cumsum = torch.cumsum(fp, dim=0)
+            precision = tp_cumsum / (tp_cumsum + fp_cumsum + 1e-8)
+            recall = tp_cumsum / (num_targets + 1e-8)
+
+            ap = 0.0
+            for i in range(1, len(recall)):
+                ap += (recall[i] - recall[i - 1]) * precision[i]
+            aps_by_class[class_id] = float(ap)
+
+        if aps_by_class:
+            return sum(aps_by_class.values()) / len(aps_by_class)
+        else:
+            return 0.0
 
 
 def box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
@@ -243,12 +494,12 @@ class SegmentationEvaluator:
             return {"dice": 0.0, "iou": 0.0, "sensitivity": 0.0, "specificity": 0.0}
 
         return {
-            "dice": np.mean(self.dice_scores),
-            "iou": np.mean(self.iou_scores),
-            "sensitivity": np.mean(self.sensitivity_scores),
-            "specificity": np.mean(self.specificity_scores),
-            "dice_std": np.std(self.dice_scores),
-            "iou_std": np.std(self.iou_scores),
+            "dice": float(np.mean(self.dice_scores)),
+            "iou": float(np.mean(self.iou_scores)),
+            "sensitivity": float(np.mean(self.sensitivity_scores)),
+            "specificity": float(np.mean(self.specificity_scores)),
+            "dice_std": float(np.std(self.dice_scores)),
+            "iou_std": float(np.std(self.iou_scores)),
         }
 
 
@@ -366,10 +617,10 @@ def benchmark_model(
         peak_memory = 0.0
 
     return {
-        "avg_inference_time": np.mean(times),
-        "std_inference_time": np.std(times),
-        "min_inference_time": np.min(times),
-        "max_inference_time": np.max(times),
-        "peak_memory_mb": peak_memory,
-        "throughput_fps": 1.0 / np.mean(times),
+        "avg_inference_time": float(np.mean(times)),
+        "std_inference_time": float(np.std(times)),
+        "min_inference_time": float(np.min(times)),
+        "max_inference_time": float(np.max(times)),
+        "peak_memory_mb": float(peak_memory),
+        "throughput_fps": float(1.0 / np.mean(times)),
     }

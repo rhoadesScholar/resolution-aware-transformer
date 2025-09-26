@@ -321,6 +321,7 @@ def main():
         )
 
         logger.info("SUCCESS: Experiment completed successfully!")
+        logger.info(f"Experiment Results: {json.dumps(results, indent=2)}")
 
     except Exception as e:
         logger.error(f"FAILED: Experiment failed with error: {e}")

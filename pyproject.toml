@@ -34,7 +34,6 @@ dependencies = [
     "torch",
     "rotary-spatial-embeddings>=2025.9.25.1502",
     "spatial-grouping-attention>=2025.9.25.1623",
-    # "multi-res-mossa",
 ]
 
 [project.optional-dependencies]

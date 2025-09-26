@@ -272,6 +272,8 @@ def box_iou(boxes1: torch.Tensor, boxes2: torch.Tensor) -> torch.Tensor:
     inter = wh[:, :, 0] * wh[:, :, 1]  # [N, M]
 
     union = area1[:, None] + area2 - inter
+
+
 class SegmentationEvaluator:
     """Evaluator for segmentation tasks using torchmetrics."""
 
@@ -298,7 +300,9 @@ class SegmentationEvaluator:
         self.specificity_metric.reset()
 
     @staticmethod
-    def _preprocess(pred: torch.Tensor, target: torch.Tensor, binary_type: str = "long"):
+    def _preprocess(
+        pred: torch.Tensor, target: torch.Tensor, binary_type: str = "long"
+    ):
         """
         Preprocess prediction and target tensors for metric computation.
 
@@ -346,10 +350,6 @@ class SegmentationEvaluator:
         """Compute final metrics."""
         return {
             "dice": float(self.dice_metric.compute()),
-            "iou": float(self.iou_metric.compute()),
-            "sensitivity": float(self.sensitivity_metric.compute()),
-            "specificity": float(self.specificity_metric.compute()),
-        }
             "iou": float(self.iou_metric.compute()),
             "sensitivity": float(self.sensitivity_metric.compute()),
             "specificity": float(self.specificity_metric.compute()),

@@ -1,0 +1,86 @@
+# Object Detection Experiment Configuration - MS COCO 2017
+# Run with: python ray_train.py --config configs/object_detection.yaml --num-gpus 8
+
+# Experiment metadata
+experiment_name: "rat_object_detection_coco2017"
+description: "Resolution Aware Transformer for MS COCO 2017 object detection"
+task_type: "detection"
+
+# Random seed for reproducibility
+seed: 42
+
+# Dataset configuration
+data:
+  dataset_name: "coco2017"
+  dataset_url: "https://cocodataset.org/#download"
+  local_data_dir: "/tmp/datasets/coco2017"  # Local storage for datasets
+  image_size: 800
+  max_size: 1333
+  # num_workers: 8
+  train_split: "train2017"
+  val_split: "val2017"
+  
+  # Download configuration (COCO is very large ~20GB)
+  download_timeout_factor: 4  # Higher factor for large files
+  min_download_timeout: 60    # Minimum timeout in seconds
+  max_download_timeout: 7200  # Maximum timeout in seconds (2 hours)
+  
+  # Data augmentation
+  augmentation:
+    random_flip: 0.5
+    color_jitter: 0.1
+    multi_scale_jitter: 0.1
+    normalize:
+      mean: [0.485, 0.456, 0.406]
+      std: [0.229, 0.224, 0.225]
+
+# Model configuration
+model:
+  name: "rat_detection"
+  spatial_dims: 2
+  input_features: 3
+  feature_dims: 256
+  num_blocks: 6
+  num_heads: 8
+  attention_type: "dense"
+  multi_scale: true  # Multi-scale for object detection
+  learnable_rose: true
+  mlp_ratio: 4
+  mlp_dropout: 0.1
+  
+  # Detection-specific parameters
+  num_classes: 91  # COCO classes
+  num_queries: 100
+  bbox_loss_coef: 5.0
+  giou_loss_coef: 2.0
+  class_loss_coef: 1.0
+
+# Training configuration
+training:
+  epochs: 150
+  # Batch size will be automatically optimized based on GPU memory
+  # Set target_effective_batch_size to match baseline papers  
+  target_effective_batch_size: 16  # COCO detection baseline effective batch size
+  learning_rate: 1e-4
+  weight_decay: 1e-4
+  scheduler: "cosine"
+  warmup_epochs: 10
+  grad_clip: 0.1
+  mixed_precision: true
+  use_deepspeed: true  # Enable DeepSpeed Stage 2/3 for memory optimization
+  
+  # Automatic optimization features
+  auto_batch_size: true  # Calculate optimal batch size based on GPU memory
+  gradient_accumulation: "auto"  # Automatically set to achieve target_effective_batch_size
+
+# Results and logging (saved to network drive with repo)
+results:
+  output_dir: "./results/object_detection"  # Network drive path
+  save_checkpoints: true
+  checkpoint_freq: 10
+  log_freq: 100
+
+# Evaluation metrics
+evaluation:
+  metrics: ["mAP@0.5", "mAP@0.5:0.95", "mAP_small", "mAP_medium", "mAP_large"]
+  eval_freq: 5

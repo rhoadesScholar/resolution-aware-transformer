@@ -7,6 +7,7 @@ This is the RECOMMENDED way to run experiments:
 - Each config file is self-contained and experiment-specific
 - No complex multi-experiment orchestration
 - Direct training + evaluation pipeline
+- Integrated experiment tracking and organization
 
 Usage:
     python run_experiment.py --config configs/medical_segmentation.yaml --num-gpus 8
@@ -29,6 +30,7 @@ sys.path.append(str(Path(__file__).parent))
 sys.path.append(str(Path(__file__).parent.parent))
 
 from ray_train import train_rat_with_ray
+from common.experiment_tracker import ExperimentTracker
 
 
 def find_best_checkpoint(results_dir: Path) -> str:
@@ -59,9 +61,9 @@ def run_experiment(
     evaluation_only: bool = False,
     checkpoint_path: Optional[str] = None,
     robustness_test: bool = False,
-) -> dict:
+) -> dict, ExperimentTracker:
     """
-    Run a complete experiment: training + evaluation.
+    Run a complete experiment: training + evaluation with organized tracking.
 
     Args:
         config_path: Path to experiment config file
@@ -81,19 +83,38 @@ def run_experiment(
     experiment_name = config.get("experiment_name", "rat_experiment")
     task_type = config.get("task_type", "segmentation")
 
-    # Setup results directory
-    results_base_dir = Path(config.get("results", {}).get("output_dir", "./results"))
-    results_dir = results_base_dir / experiment_name
-    results_dir.mkdir(parents=True, exist_ok=True)
+    # Initialize experiment tracker
+    tracker = ExperimentTracker("results")
+
+    # Register experiment and get organized directory
+    additional_info = {
+        "quick_mode": quick_mode,
+        "evaluation_only": evaluation_only,
+        "robustness_test": robustness_test,
+        "original_config_path": config_path,
+    }
+
+    experiment_id = tracker.register_experiment(
+        experiment_name=experiment_name,
+        config_path=config_path,
+        task_type=task_type,
+        num_gpus=num_gpus,
+        additional_info=additional_info,
+    )
+
+    # Get the organized experiment directory
+    exp_metadata = tracker.registry["experiments"][experiment_id]
+    results_dir = Path(exp_metadata["directory"])
     os.environ["RESULTS_DIR"] = str(results_dir)
 
-    # Setup logging
+    # Setup logging to the organized directory
+    log_file = results_dir / "logs" / "experiment.log"
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler(str(results_dir / "experiment.log")),
+            logging.FileHandler(str(log_file)),
         ],
     )
     logger = logging.getLogger(__name__)
@@ -223,7 +244,18 @@ def run_experiment(
         experiment_results["status"] = "completed"
         experiment_results["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
-        # Save experiment summary
+        # Update experiment tracker with success
+        tracker.update_experiment_status(
+            experiment_id,
+            "completed",
+            {
+                "total_time_minutes": total_time / 60,
+                "evaluation_metrics": experiment_results.get("evaluation_metrics", {}),
+                "robustness_metrics": experiment_results.get("robustness_metrics", {}),
+            },
+        )
+
+        # Save experiment summary in organized location
         summary_path = results_dir / "experiment_summary.json"
         with open(summary_path, "w") as f:
             json.dump(experiment_results, f, indent=2)
@@ -234,13 +266,19 @@ def run_experiment(
         logger.info(f"Total time: {total_time/60:.1f} minutes")
         logger.info(f"Results saved to: {results_dir}")
         logger.info(f"Summary saved to: {summary_path}")
+        logger.info(f"Experiment ID: {experiment_id}")
 
-        return experiment_results
+        return experiment_results, tracker
 
     except Exception as e:
         experiment_results["status"] = "failed"
         experiment_results["error"] = str(e)
         experiment_results["end_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        # Update experiment tracker with failure
+        tracker.update_experiment_status(
+            experiment_id, "failed", {"error": str(e), "error_type": type(e).__name__}
+        )
 
         # Save failed experiment summary
         summary_path = results_dir / "experiment_summary.json"
@@ -251,6 +289,7 @@ def run_experiment(
         logger.error("EXPERIMENT FAILED")
         logger.error("=" * 60)
         logger.error(f"Error: {e}")
+        logger.error(f"Experiment ID: {experiment_id}")
         raise
 
 
@@ -324,7 +363,7 @@ def main():
         sys.exit(1)
 
     try:
-        results = run_experiment(
+        results, tracker = run_experiment(
             config_path=args.config,
             num_gpus=args.num_gpus,
             quick_mode=args.quick,
@@ -335,6 +374,9 @@ def main():
 
         logger.info("SUCCESS: Experiment completed successfully!")
         logger.info(f"Experiment Results: {json.dumps(results, indent=2)}")
+
+        # Generate report
+        tracker.generate_experiment_report()
 
     except Exception as e:
         logger.error(f"FAILED: Experiment failed with error: {e}")

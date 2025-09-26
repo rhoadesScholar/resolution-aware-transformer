@@ -162,7 +162,7 @@ class RATSegmentationModel(nn.Module):
         feature_dims: int = 128,
         num_blocks: int = 4,
         num_classes: int = 1,
-        attention_type: str = "dense",
+        sga_attention_type: str = "dense",
         **kwargs,
     ):
         super().__init__()
@@ -177,8 +177,8 @@ class RATSegmentationModel(nn.Module):
             if key in ["multi_scale", "scales"]:
                 # These are handled at the data loader level, not model level
                 continue
-            elif key == "attention_type":
-                # Map attention_type to sga_attention_type for the transformer
+            elif key == "sga_attention_type":
+                # Map sga_attention_type to sga_attention_type for the transformer
                 filtered_kwargs["sga_attention_type"] = value
             elif key == "positional_encoding":
                 # Handle different positional encoding types
@@ -211,7 +211,7 @@ class RATSegmentationModel(nn.Module):
             input_features=input_features,
             feature_dims=feature_dims,
             num_blocks=num_blocks,
-            sga_attention_type=attention_type,
+            sga_attention_type=sga_attention_type,
             **filtered_kwargs,
         )
 
@@ -284,7 +284,7 @@ class RATDetectionModel(nn.Module):
         num_blocks: int = 6,
         num_classes: int = 80,
         num_queries: int = 100,
-        attention_type: str = "dense",
+        sga_attention_type: str = "dense",
         **kwargs,
     ):
         super().__init__()
@@ -299,8 +299,8 @@ class RATDetectionModel(nn.Module):
             if key in ["multi_scale", "scales", "num_queries"]:
                 # These are handled at the model level or data loader level
                 continue
-            elif key == "attention_type":
-                # Map attention_type to sga_attention_type for the transformer
+            elif key == "sga_attention_type":
+                # Map sga_attention_type to sga_attention_type for the transformer
                 filtered_kwargs["sga_attention_type"] = value
             elif key == "positional_encoding":
                 # Handle different positional encoding types
@@ -333,7 +333,7 @@ class RATDetectionModel(nn.Module):
             input_features=input_features,
             feature_dims=feature_dims,
             num_blocks=num_blocks,
-            sga_attention_type=attention_type,
+            sga_attention_type=sga_attention_type,
             **filtered_kwargs,
         )
 
@@ -510,7 +510,7 @@ def create_rat_detection_model(**kwargs) -> nn.Module:
         "input_features",
         "feature_dims",
         "num_blocks",
-        "attention_type",
+        "sga_attention_type",
         "positional_encoding",
         "num_heads",
         "learnable_rose",
@@ -625,25 +625,25 @@ MODEL_CONFIGS = {
         "feature_dims": 128,
         "num_blocks": 2,
         "num_heads": 8,
-        "attention_type": "dense",
+        "sga_attention_type": "dense",
     },
     "rat_base": {
         "feature_dims": 256,
         "num_blocks": 4,
         "num_heads": 16,
-        "attention_type": "dense",
+        "sga_attention_type": "dense",
     },
     "rat_large": {
         "feature_dims": 512,
         "num_blocks": 6,
         "num_heads": 32,
-        "attention_type": "dense",
+        "sga_attention_type": "dense",
     },
     "rat_sparse": {
         "feature_dims": 256,
         "num_blocks": 4,
         "num_heads": 16,
-        "attention_type": "sparse",
+        "sga_attention_type": "sparse",
     },
     "unet_small": {
         "init_features": 16,

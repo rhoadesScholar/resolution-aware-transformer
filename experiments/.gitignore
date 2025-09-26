@@ -36,43 +36,67 @@ share/python-wheels/
 .idea/
 *.iml
 
-# Log files (except organized ones in results/)
-*.log
-!results/experiment_logs/*.log
-
-# Backup files
+# Backup directories and files
+*_backup*/
+results_backup_*/
 *.orig
 *.backup
-*_backup*
 
-# Test artifacts
-test_*
-!test_*.py
-
-# Empty data directories (keep structure)
+# Empty data directories (keep structure but ignore contents)
 data/*
 !data/.gitkeep
 checkpoints/*
 !checkpoints/.gitkeep
-logs/*
-!logs/.gitkeep
 
-# LSF output files
+# LSF/SLURM output files
 *.out
 *.err
 core.*
 
-# Model checkpoints (usually large)
+# Model checkpoints (usually large files)
 *.pth
 *.pt
 *.ckpt
+*.safetensors
 
-# Temporary experiment outputs
+# Experiment results and outputs (keep structure with .gitkeep files)
+results/experiments/active/*
+!results/experiments/active/.gitkeep
+results/experiments/completed/*
+!results/experiments/completed/.gitkeep
+results/experiments/failed/*
+!results/experiments/failed/.gitkeep
+results/experiments/archived/*
+!results/experiments/archived/.gitkeep
+
+results/logs/system/*
+!results/logs/system/.gitkeep
+results/logs/training/*
+!results/logs/training/.gitkeep
+results/logs/evaluation/*
+!results/logs/evaluation/.gitkeep
+
+results/checkpoints/by_experiment/*
+!results/checkpoints/by_experiment/.gitkeep
+results/checkpoints/best_models/*
+!results/checkpoints/best_models/.gitkeep
+
+results/tensorboard/*
+!results/tensorboard/.gitkeep
+results/analysis/*
+!results/analysis/.gitkeep
+
+# Experiment logs and outputs
+*.log
 *.csv
 *.png
 *.jpg
+*.jpeg
 *.pdf
-!results/**/*.csv
-!results/**/*.png
-!results/**/*.jpg
-!results/**/*.pdf
+*.pkl
+*.txt
+events.out.tfevents.*
+
+# Keep essential config and tracking files
+!results/README.md
+!results/experiment_registry.json

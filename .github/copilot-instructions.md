@@ -69,7 +69,7 @@ model:
   spatial_dims: 2  # or 3 for volumes
   feature_dims: 128  # Embedding dimension
   num_blocks: 4      # Transformer layers
-  attention_type: "dense"  # or "sparse"
+  sga_attention_type: "dense"  # or "sparse"
 
 # Training configuration with DeepSpeed support
 training:

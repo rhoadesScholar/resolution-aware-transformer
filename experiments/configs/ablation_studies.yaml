@@ -36,7 +36,7 @@ model:
   feature_dims: 128
   num_blocks: 4
   num_heads: 8
-  attention_type: "dense"
+  sga_attention_type: "dense"
   multi_scale: false
   learnable_rose: true
   mlp_ratio: 4
@@ -67,7 +67,7 @@ ablations:
     description: "Compare different positional encoding methods"
   
   # Test attention mechanisms
-  attention_type:
+  sga_attention_type:
     variants: ["dense", "sparse", "mixed"]
     description: "Compare attention mechanism types"
   

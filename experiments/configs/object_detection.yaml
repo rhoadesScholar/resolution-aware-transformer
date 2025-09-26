@@ -42,7 +42,7 @@ model:
   feature_dims: 256
   num_blocks: 6
   num_heads: 8
-  attention_type: "dense"
+  sga_attention_type: "dense"
   multi_scale: true  # Multi-scale for object detection
   learnable_rose: true
   mlp_ratio: 4

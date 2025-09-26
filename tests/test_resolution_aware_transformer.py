@@ -216,7 +216,7 @@ class TestResolutionAwareTransformer:
         assert isinstance(output, list)
         assert len(output) == 1
 
-    def test_attention_types_dense(self):
+    def test_sga_attention_types_dense(self):
         """Test dense attention type."""
         model = ResolutionAwareTransformer(
             spatial_dims=2,

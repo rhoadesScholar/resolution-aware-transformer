@@ -126,17 +126,17 @@ def run_ablation_study(config, args):
             )
 
     # 2. Attention Type Ablation
-    if config["ablations"].get("attention_type", False):
+    if config["ablations"].get("sga_attention_type", False):
         attention_variants = ["dense", "sparse"]
         for attn in attention_variants:
             cfg = config["model"]["base"].copy()
             cfg["name"] = "rat"
-            cfg["attention_type"] = attn
+            cfg["sga_attention_type"] = attn
             ablation_configs.append(
                 {
                     "name": f"attention_{attn}",
                     "config": cfg,
-                    "category": "attention_type",
+                    "category": "sga_attention_type",
                 }
             )
 
@@ -194,7 +194,7 @@ def run_ablation_study(config, args):
 
             # Use memory-efficient settings for high dimensions
             if dim >= 512:
-                cfg["attention_type"] = (
+                cfg["sga_attention_type"] = (
                     "sparse"  # Use sparse attention for memory efficiency
                 )
                 cfg["num_blocks"] = 2  # Reduce number of blocks

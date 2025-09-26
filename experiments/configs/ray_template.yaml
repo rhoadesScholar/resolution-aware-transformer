@@ -14,7 +14,7 @@ model:
   num_blocks: 4      # Transformer layers
   num_heads: 8       # Attention heads
   mlp_ratio: 4       # MLP expansion ratio
-  attention_type: "dense"  # "dense", "sparse", or "mixed"
+  sga_attention_type: "dense"  # "dense", "sparse", or "mixed"
   positional_encoding: "rose"  # "rose", "rope", "absolute", or "none"
   input_features: 3  # RGB images
 

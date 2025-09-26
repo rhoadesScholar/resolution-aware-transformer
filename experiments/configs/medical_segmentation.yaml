@@ -51,7 +51,7 @@ model:
   feature_dims: 128
   num_blocks: 4
   num_heads: 8
-  attention_type: "dense"
+  sga_attention_type: "dense"
   multi_scale: false  # Set to true for multi-scale experiments
   learnable_rose: true
   mlp_ratio: 4

@@ -40,7 +40,7 @@ This architecture is particularly effective for:
 | `input_features` | Number of input channels | 3 |
 | `feature_dims` | Embedding dimension | 128 |
 | `num_blocks` | Number of transformer blocks | 4 |
-| `attention_type` | "dense" or "sparse" attention | "dense" |
+| `sga_attention_type` | "dense" or "sparse" attention | "dense" |
 | `num_heads` | Number of attention heads | 16 |
 | `kernel_size` | Convolution kernel size for downsampling | 7 |
 | `mlp_ratio` | MLP hidden dimension ratio | 4 |
@@ -105,7 +105,7 @@ model = ResolutionAwareTransformer(
     feature_dims=128,        # Embedding dimension
     num_blocks=4,            # Number of transformer blocks
     num_heads=16,            # Attention heads
-    attention_type="dense"   # "dense" or "sparse"
+    sga_attention_type="dense"   # "dense" or "sparse"
 )
 
 # Single image input

@@ -21,7 +21,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
 import logging
 import yaml
 
@@ -61,7 +61,7 @@ def run_experiment(
     evaluation_only: bool = False,
     checkpoint_path: Optional[str] = None,
     robustness_test: bool = False,
-) -> dict, ExperimentTracker:
+) -> Tuple[dict, ExperimentTracker]:
     """
     Run a complete experiment: training + evaluation with organized tracking.
 

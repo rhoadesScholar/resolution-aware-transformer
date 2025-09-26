@@ -1,1 +1,21 @@
-{"experiments": {}, "last_updated": null}
+{
+  "experiments": {
+    "rat_medical_segmentation_isic2018_20250926_170850": {
+      "experiment_id": "rat_medical_segmentation_isic2018_20250926_170850",
+      "experiment_name": "rat_medical_segmentation_isic2018",
+      "task_type": "segmentation",
+      "config_path": "configs/medical_segmentation.yaml",
+      "num_gpus": 8,
+      "start_time": "2025-09-26T17:08:50.403575",
+      "status": "active",
+      "directory": "/nrs/cellmap/rhoadesj/resolution-aware-transformer/experiments/results/experiments/active/rat_medical_segmentation_isic2018_20250926_170850",
+      "additional_info": {
+        "quick_mode": false,
+        "evaluation_only": false,
+        "robustness_test": false,
+        "original_config_path": "configs/medical_segmentation.yaml"
+      }
+    }
+  },
+  "last_updated": "2025-09-26T17:08:50.407033"
+}

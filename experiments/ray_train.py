@@ -1192,21 +1192,16 @@ def setup_scratch_directories() -> Dict[str, Optional[str]]:
             # Register cleanup function
             def cleanup_scratch():
                 """Clean up scratch directories on exit."""
-                try:
-                    if scratch_dir.exists():
-                        logger.info(f"Cleaning up scratch directory: {scratch_dir}")
+                for dir_path in [scratch_dir, ray_temp_dir, data_dir]:
+                    if dir_path.exists():
+                        logger.info(f"Cleaning up directory: {dir_path}")
                         try:
-                            shutil.rmtree(scratch_dir)
-                            logger.info("✓ Scratch cleanup completed")
+                            shutil.rmtree(dir_path)
+                            logger.info(f"✓ Cleaned up directory: {dir_path}")
                         except Exception as cleanup_error:
-                            logger.warning(f"Failed to remove scratch directory: {cleanup_error}")
-                            logger.info("✓ Scratch cleanup completed")
-                        except Exception as cleanup_err:
-                            logger.warning(f"Failed to clean up scratch directory: {cleanup_err}")
-                except Exception as e:
-                    logger.warning(
-                        f"Warning: Failed to clean up scratch directory: {e}"
-                    )
+                            logger.warning(
+                                f"Failed to remove directory {dir_path}: {cleanup_error}"
+                            )
 
             atexit.register(cleanup_scratch)
 
@@ -1250,19 +1245,13 @@ def setup_scratch_directories() -> Dict[str, Optional[str]]:
         # Register cleanup function
         def cleanup_fallback():
             """Clean up fallback directories on exit."""
-                    try:
-                        shutil.rmtree(fallback_base)
-                        logger.info("✓ Fallback cleanup completed")
-                    except Exception as cleanup_error:
-                        logger.warning(f"Failed to remove fallback directory: {cleanup_error}")
-                    logger.info(f"Cleaning up fallback directory: {fallback_base}")
-                    try:
-                        shutil.rmtree(fallback_base)
-                        logger.info("✓ Fallback cleanup completed")
-                    except Exception as cleanup_err:
-                        logger.warning(f"Failed to clean up fallback directory: {cleanup_err}")
-            except Exception as e:
-                logger.warning(f"Warning: Failed to clean up fallback directory: {e}")
+            for dir_path in [fallback_base, ray_temp_dir, data_dir]:
+                try:
+                    if dir_path.exists():
+                        shutil.rmtree(dir_path)
+                        logger.info(f"✓ Cleaned up directory: {dir_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to clean up directory {dir_path}: {e}")
 
         atexit.register(cleanup_fallback)
 
@@ -1324,7 +1313,7 @@ def train_function(config: Dict[str, Any]):
 
     # Import here to avoid issues with Ray serialization
     try:
-        from datasets import ISICDataset, COCODataset
+        from common.datasets import ISICDataset, COCODataset
     except ImportError as e:
         worker_logger.error(f"Could not import datasets: {e}")
         worker_logger.info(
@@ -1332,7 +1321,7 @@ def train_function(config: Dict[str, Any]):
         )
         raise
 
-    from models import create_model
+    from common.models import create_model
 
     # Get distributed context from Ray (replaces our manual distributed detection)
     rank = train.get_context().get_local_rank()

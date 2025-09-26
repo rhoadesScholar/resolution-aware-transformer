@@ -1650,9 +1650,9 @@ if __name__ == "__main__":
     result = train_rat_with_ray(args.config, args.num_gpus, args.cpus_per_gpu)
     # Handle the result for proper error reporting and summary
     if hasattr(result, "metrics"):
-        print(f"Best validation loss: {result.metrics.get('val_loss', 'N/A')}")
+        logger.info(f"Best validation loss: {result.metrics.get('val_loss', 'N/A')}")
     if hasattr(result, "path"):
-        print(f"Results saved to: {result.path}")
+        logger.info(f"Results saved to: {result.path}")
     # Optionally, check for errors or status
     if hasattr(result, "error") and result.error is not None:
-        print(f"Training encountered an error: {result.error}")
+        logger.error(f"Training encountered an error: {result.error}")

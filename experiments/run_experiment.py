@@ -27,6 +27,8 @@ import yaml
 sys.path.append(str(Path(__file__).parent))
 sys.path.append(str(Path(__file__).parent.parent))
 
+from ray_train import train_rat_with_ray
+
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
@@ -136,8 +138,6 @@ def run_experiment(
             logger.info("=" * 60)
 
             training_start_time = time.time()
-
-            from ray_train import train_rat_with_ray
 
             train_rat_with_ray(
                 config_path=str(final_config_path),

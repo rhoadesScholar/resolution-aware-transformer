@@ -16,6 +16,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -28,14 +29,6 @@ sys.path.append(str(Path(__file__).parent))
 sys.path.append(str(Path(__file__).parent.parent))
 
 from ray_train import train_rat_with_ray
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("experiment.log")],
-)
-logger = logging.getLogger(__name__)
 
 
 def find_best_checkpoint(results_dir: Path) -> str:
@@ -88,17 +81,29 @@ def run_experiment(
     experiment_name = config.get("experiment_name", "rat_experiment")
     task_type = config.get("task_type", "segmentation")
 
+    # Setup results directory
+    results_base_dir = Path(config.get("results", {}).get("output_dir", "./results"))
+    results_dir = results_base_dir / experiment_name
+    results_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["RESULTS_DIR"] = str(results_dir)
+
+    # Setup logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(str(results_dir / "experiment.log")),
+        ],
+    )
+    logger = logging.getLogger(__name__)
+
     logger.info(f"Running experiment: {experiment_name}")
     logger.info(f"Task type: {task_type}")
     logger.info(f"Config: {config_path}")
     logger.info(f"GPUs: {num_gpus}")
     logger.info(f"Quick mode: {quick_mode}")
     logger.info(f"Evaluation only: {evaluation_only}")
-
-    # Setup results directory
-    results_base_dir = Path(config.get("results", {}).get("output_dir", "./results"))
-    results_dir = results_base_dir / experiment_name
-    results_dir.mkdir(parents=True, exist_ok=True)
 
     # Apply quick mode modifications
     if quick_mode:
@@ -299,6 +304,14 @@ Examples:
 
 
 def main():
+    # Configure logging early so all log messages are output
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler()],
+    )
+    logger = logging.getLogger(__name__)
+
     args = parse_args()
 
     # Validate arguments

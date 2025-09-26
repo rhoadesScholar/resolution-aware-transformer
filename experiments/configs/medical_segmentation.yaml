@@ -22,7 +22,7 @@ seed: 42
 data:
   dataset_name: "isic2018"
   dataset_url: "https://challenge.isic-archive.com/data/#2018"
-  local_data_dir: "/tmp/datasets/isic2018"  # Local storage for datasets
+  local_data_dir: "/tmp/datasets/isic2018"  # Will be automatically moved to /scratch/{username}/rat/datasets/
   image_size: 256
   # num_workers: 4
   train_split: "train"

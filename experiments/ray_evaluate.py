@@ -47,10 +47,11 @@ from common.metrics import SegmentationEvaluator, DetectionEvaluator
 from common.utils import get_device, set_seed
 
 # Setup logging
+log_path = Path(os.environ.get("RESULTS_DIR", ".")) / "evaluation.log"
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("evaluation.log")],
+    handlers=[logging.StreamHandler(), logging.FileHandler(str(log_path))],
 )
 logger = logging.getLogger(__name__)
 

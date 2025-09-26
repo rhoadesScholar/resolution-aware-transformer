@@ -50,18 +50,40 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import yaml
+import getpass
+import atexit
 
 # Add experiments directory to path
 EXPERIMENTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(EXPERIMENTS_DIR / "common"))
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("training.log")],
-)
-logger = logging.getLogger(__name__)
+
+# Setup logging (safe for Ray workers)
+def setup_logging():
+    """Setup logging that works safely in Ray workers."""
+    handlers = [logging.StreamHandler()]
+
+    # Only add file handler if RESULTS_DIR is set and accessible
+    results_dir = os.environ.get("RESULTS_DIR")
+    if results_dir:
+        try:
+            log_path = Path(results_dir) / "training.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            handlers.append(logging.FileHandler(str(log_path)))
+        except Exception:
+            pass  # Fall back to console logging only
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=handlers,
+        force=True,  # Override any existing configuration
+    )
+    return logging.getLogger(__name__)
+
+
+# Setup logging - this will be called again in train_function for Ray workers
+logger = setup_logging()
 
 
 def get_gpu_memory_info() -> Dict[str, float]:
@@ -1137,9 +1159,128 @@ def _download_coco2017(
     logger.info(f"COCO 2017 dataset downloaded and extracted to {local_path}")
 
 
+def setup_scratch_directories() -> Dict[str, Optional[str]]:
+    """
+    Setup scratch directories for data and Ray temporary files using current user.
+    Falls back to user-controlled temporary directories if scratch space isn't available.
+
+    Returns:
+        Dictionary with scratch_dir, data_dir, and ray_temp_dir paths
+    """
+    username = getpass.getuser()
+
+    # Try scratch directory first
+    scratch_base = Path(f"/scratch/{username}")
+    if scratch_base.exists() and os.access(scratch_base, os.W_OK):
+        try:
+            scratch_dir = (
+                scratch_base / "rat"
+            )  # Shortened to avoid Unix socket path limits
+            data_dir = scratch_dir / "data"  # Shortened from "datasets"
+            ray_temp_dir = scratch_dir / "tmp"  # Shortened from "ray_temp"
+
+            # Create directories
+            scratch_dir.mkdir(parents=True, exist_ok=True)
+            data_dir.mkdir(parents=True, exist_ok=True)
+            ray_temp_dir.mkdir(parents=True, exist_ok=True)
+
+            logger.info(f"✓ Using scratch directories for user: {username}")
+            logger.info(f"  - Scratch base: {scratch_dir}")
+            logger.info(f"  - Data directory: {data_dir}")
+            logger.info(f"  - Ray temp directory: {ray_temp_dir}")
+
+            # Register cleanup function
+            def cleanup_scratch():
+                """Clean up scratch directories on exit."""
+                try:
+                    if scratch_dir.exists():
+                        logger.info(f"Cleaning up scratch directory: {scratch_dir}")
+                        try:
+                            shutil.rmtree(scratch_dir)
+                            logger.info("✓ Scratch cleanup completed")
+                        except Exception as cleanup_error:
+                            logger.warning(f"Failed to remove scratch directory: {cleanup_error}")
+                            logger.info("✓ Scratch cleanup completed")
+                        except Exception as cleanup_err:
+                            logger.warning(f"Failed to clean up scratch directory: {cleanup_err}")
+                except Exception as e:
+                    logger.warning(
+                        f"Warning: Failed to clean up scratch directory: {e}"
+                    )
+
+            atexit.register(cleanup_scratch)
+
+            return {
+                "scratch_dir": str(scratch_dir),
+                "data_dir": str(data_dir),
+                "ray_temp_dir": str(ray_temp_dir),
+            }
+
+        except Exception as e:
+            logger.warning(f"Failed to setup scratch directories: {e}")
+            # Fall through to fallback option
+
+    # Fallback: Use temporary directory in user's home or /tmp
+    logger.info(f"Scratch directory not available, using fallback for user: {username}")
+
+    try:
+        # Try user's home directory first
+        home_dir = Path.home()
+        if home_dir.exists() and os.access(home_dir, os.W_OK):
+            fallback_base = (
+                home_dir / ".cache" / "rat"
+            )  # Shortened to avoid Unix socket path limits
+        else:
+            # Ultimate fallback: use /tmp with user-specific subdirectory
+            fallback_base = Path("/tmp") / f"rat-{username}-{os.getpid()}"
+
+        data_dir = fallback_base / "datasets"
+        ray_temp_dir = fallback_base / "ray_temp"
+
+        # Create directories
+        fallback_base.mkdir(parents=True, exist_ok=True)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        ray_temp_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"✓ Using fallback directories:")
+        logger.info(f"  - Base directory: {fallback_base}")
+        logger.info(f"  - Data directory: {data_dir}")
+        logger.info(f"  - Ray temp directory: {ray_temp_dir}")
+
+        # Register cleanup function
+        def cleanup_fallback():
+            """Clean up fallback directories on exit."""
+                    try:
+                        shutil.rmtree(fallback_base)
+                        logger.info("✓ Fallback cleanup completed")
+                    except Exception as cleanup_error:
+                        logger.warning(f"Failed to remove fallback directory: {cleanup_error}")
+                    logger.info(f"Cleaning up fallback directory: {fallback_base}")
+                    try:
+                        shutil.rmtree(fallback_base)
+                        logger.info("✓ Fallback cleanup completed")
+                    except Exception as cleanup_err:
+                        logger.warning(f"Failed to clean up fallback directory: {cleanup_err}")
+            except Exception as e:
+                logger.warning(f"Warning: Failed to clean up fallback directory: {e}")
+
+        atexit.register(cleanup_fallback)
+
+        return {
+            "scratch_dir": str(fallback_base),
+            "data_dir": str(data_dir),
+            "ray_temp_dir": str(ray_temp_dir),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to setup fallback directories: {e}")
+        logger.error("This may cause Ray initialization to fail with permission errors")
+        return {"scratch_dir": None, "data_dir": None, "ray_temp_dir": None}
+
+
 def setup_directories(config: Dict[str, Any]) -> Dict[str, str]:
     """
-    Setup local data directory and network results directory.
+    Setup local data directory and network results directory with scratch space support.
 
     Args:
         config: Experiment configuration
@@ -1147,8 +1288,16 @@ def setup_directories(config: Dict[str, Any]) -> Dict[str, str]:
     Returns:
         Dictionary with local_data_dir and results_dir paths
     """
-    # Local data directory (e.g., /tmp/datasets/)
-    local_data_dir = config["data"]["local_data_dir"]
+    # Setup scratch directories first
+    scratch_paths = setup_scratch_directories()
+
+    # Use scratch directory for data if available, otherwise use config path
+    if scratch_paths["data_dir"]:
+        local_data_dir = scratch_paths["data_dir"]
+        logger.info(f"Using scratch directory for data: {local_data_dir}")
+    else:
+        local_data_dir = config["data"]["local_data_dir"]
+        logger.warning(f"Falling back to configured data directory: {local_data_dir}")
 
     # Network results directory (saved with repo)
     results_config = config.get("results", {})
@@ -1158,7 +1307,11 @@ def setup_directories(config: Dict[str, Any]) -> Dict[str, str]:
     Path(local_data_dir).mkdir(parents=True, exist_ok=True)
     Path(results_dir).mkdir(parents=True, exist_ok=True)
 
-    return {"local_data_dir": local_data_dir, "results_dir": results_dir}
+    return {
+        "local_data_dir": local_data_dir,
+        "results_dir": results_dir,
+        "ray_temp_dir": scratch_paths.get("ray_temp_dir"),
+    }
 
 
 def train_function(config: Dict[str, Any]):
@@ -1166,12 +1319,17 @@ def train_function(config: Dict[str, Any]):
     Optimized training function with DeepSpeed and automatic batch sizing.
     This replaces our complex UnifiedTrainer class with intelligent optimization.
     """
+    # Setup logging safely for Ray workers
+    worker_logger = setup_logging()
+
     # Import here to avoid issues with Ray serialization
     try:
         from datasets import ISICDataset, COCODataset
     except ImportError as e:
-        logger.error(f"Could not import datasets: {e}")
-        logger.info("Make sure the experiments/common directory is in the Python path")
+        worker_logger.error(f"Could not import datasets: {e}")
+        worker_logger.info(
+            "Make sure the experiments/common directory is in the Python path"
+        )
         raise
 
     from models import create_model
@@ -1180,7 +1338,7 @@ def train_function(config: Dict[str, Any]):
     rank = train.get_context().get_local_rank()
     world_size = train.get_context().get_world_size()
 
-    logger.info(f"Worker {rank}/{world_size} starting optimized training")
+    worker_logger.info(f"Worker {rank}/{world_size} starting optimized training")
 
     # Setup directories
     dirs = setup_directories(config)
@@ -1518,6 +1676,12 @@ def train_rat_with_ray(
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
+    # Setup scratch directories and update configuration paths
+    dirs = setup_directories(config)
+
+    # Update config to use scratch directory for data
+    config["data"]["local_data_dir"] = dirs["local_data_dir"]
+
     # Download dataset before training
     data_config = config["data"]
     if "dataset_url" in data_config and "local_data_dir" in data_config:
@@ -1532,9 +1696,15 @@ def train_rat_with_ray(
             config=config,
         )
 
-    # Initialize Ray (replaces our cluster detection)
+    # Initialize Ray with scratch temp directory (replaces our cluster detection)
     if not ray.is_initialized():
-        ray.init()
+        ray_temp_dir = dirs.get("ray_temp_dir")
+        if ray_temp_dir:
+            logger.info(f"Initializing Ray with custom temp directory: {ray_temp_dir}")
+            ray.init(_temp_dir=ray_temp_dir)
+        else:
+            logger.warning("No scratch temp directory available, using Ray default")
+            ray.init()
 
     logger.info(
         f"Training {config.get('experiment_name', 'RAT experiment')} with optimized Ray Train"
@@ -1547,6 +1717,8 @@ def train_rat_with_ray(
     # Setup results directory (network drive)
     results_config = config.get("results", {})
     results_dir = results_config.get("output_dir", "./results")
+    # Ensure results directory is absolute path for Ray
+    results_dir = str(Path(results_dir).resolve())
     Path(results_dir).mkdir(parents=True, exist_ok=True)
     logger.info(f"Results will be saved to: {results_dir}")
 

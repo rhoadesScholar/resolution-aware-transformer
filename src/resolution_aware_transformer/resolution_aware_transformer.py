@@ -42,7 +42,8 @@ class ResolutionAwareTransformer(torch.nn.Module):
             (default is 1e4)
         learnable_rose: Whether to use learnable rotary spatial embeddings
             (default is True)
-        learnable_rose_scaling: Whether to use learnable scaling for the rotary spatial embeddings (default is True).
+        learnable_rose_scaling: Whether to use learnable scaling for the rotary
+            spatial embeddings (default is True).
             If True, the model learns a scaling factor for each spatial dimension,
             allowing the rotary spatial embeddings to adapt to the data. This can
             improve performance when the spatial frequency content varies across

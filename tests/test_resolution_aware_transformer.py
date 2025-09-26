@@ -81,8 +81,9 @@ class TestResolutionAwareTransformer:
             assert key in output[0]
             if key in ["attn_q", "attn_k"]:
                 # Compare only the device type, ignoring any index discrepancy.
-                # Device index comparison was intentionally removed to support multi-GPU scenarios,
-                # where tensors may reside on different GPU indices but should still be considered consistent.
+                # Device index comparison was intentionally removed to support
+                # multi-GPU scenarios, where tensors may reside on different GPU
+                # indices but should still be considered consistent.
                 assert output[0][key].device.type == device.type
 
     def test_forward_3d_single_image(self):

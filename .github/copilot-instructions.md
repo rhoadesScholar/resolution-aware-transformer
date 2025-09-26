@@ -96,7 +96,7 @@ make test-cov
 make format && make lint
 ```
 
-### Cluster Deployment  
+### Cluster Deployment
 - **Ray Train Integration**: Automatic cluster resource detection and optimization
 - **DeepSpeed Support**: Built-in memory optimization for large-scale training
 - **Log Management**: Centralized logging in `experiments/results/` directory

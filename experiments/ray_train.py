@@ -53,6 +53,17 @@ import yaml
 import getpass
 import atexit
 
+# Detection-specific parameters constant to avoid duplication
+DETECTION_SPECIFIC_PARAMS = [
+    "num_classes",
+    "multi_scale",
+    "scales",
+    "bbox_loss_coef",
+    "class_loss_coef",
+    "giou_loss_coef",
+    "num_queries",
+]
+
 # Add experiments directory to path
 EXPERIMENTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(EXPERIMENTS_DIR / "common"))
@@ -1371,16 +1382,101 @@ def train_function(config: Dict[str, Any]):
 
     # Create model based on task
     model_name = model_config.pop("name", "rat")
+    # Normalize model name to handle variations like 'rat_detection' → 'rat'
+    if model_name.startswith("rat"):
+        model_name = "rat"
+
+    # Extract parameters that are not accepted by ResolutionAwareTransformer
+    # These are task-specific parameters handled by wrapper models
+    task_specific_params = {
+        "multi_scale": model_config.pop("multi_scale", False),
+        "num_classes": model_config.pop("num_classes", None),
+        "scales": model_config.pop("scales", None),
+        "bbox_loss_coef": model_config.pop("bbox_loss_coef", None),
+        "class_loss_coef": model_config.pop("class_loss_coef", None),
+        "giou_loss_coef": model_config.pop("giou_loss_coef", None),
+        "num_queries": model_config.pop("num_queries", None),
+    }
+
+    # Handle positional_encoding parameter mapping
+    positional_encoding = model_config.pop("positional_encoding", None)
+    use_rope_mode = False
+    if positional_encoding:
+        if positional_encoding == "rose":
+            model_config["learnable_rose"] = True
+        elif positional_encoding == "rope":
+            model_config["learnable_rose"] = False
+            use_rope_mode = True
+        elif positional_encoding in ["absolute", "none"]:
+            model_config["learnable_rose"] = False
+            model_config["rotary_ratio"] = 0.0
 
     # Create RAT model
-    try:
-        from resolution_aware_transformer import ResolutionAwareTransformer
+    # Use wrapper models when we have task-specific parameters or RoPE mode
+    # This ensures proper handling of multi_scale, num_classes, and RoPE spacing
+    if (
+        task_specific_params.get("num_classes") is not None
+        or task_specific_params.get("multi_scale")
+        or use_rope_mode
+    ):
 
-        model = ResolutionAwareTransformer(**model_config)
-    except ImportError:
-        # Fallback for testing
-        model = create_model(model_name, task_type, **model_config)
+        # Use wrapper models for proper parameter handling
+        # Filter parameters based on task type to avoid passing incompatible parameters
+        all_params = model_config.copy()
 
+        # Add positional encoding back if it was specified
+        if positional_encoding:
+            all_params["positional_encoding"] = positional_encoding
+
+        # Add task-specific parameters based on task type
+        if task_type.lower() == "segmentation":
+            # Segmentation-specific parameters
+            if task_specific_params.get("num_classes") is not None:
+                all_params["num_classes"] = task_specific_params["num_classes"]
+            if task_specific_params.get("multi_scale") is not None:
+                all_params["multi_scale"] = task_specific_params["multi_scale"]
+            if task_specific_params.get("scales") is not None:
+                all_params["scales"] = task_specific_params["scales"]
+
+        elif task_type.lower() == "detection":
+            # Detection-specific parameters
+            for param in DETECTION_SPECIFIC_PARAMS:
+                if task_specific_params.get(param) is not None:
+                    all_params[param] = task_specific_params[param]
+
+        model = create_model(model_name, task_type, **all_params)
+
+    else:
+        # Direct instantiation for simple cases
+        try:
+            from resolution_aware_transformer import ResolutionAwareTransformer
+
+            model = ResolutionAwareTransformer(**model_config)
+        except ImportError:
+            # Fallback for testing - filter task_specific_params by task_type
+            all_params = model_config.copy()
+            if task_type.lower() == "segmentation":
+                # Segmentation-specific parameters
+                if task_specific_params.get("num_classes") is not None:
+                    all_params["num_classes"] = task_specific_params["num_classes"]
+                if task_specific_params.get("multi_scale") is not None:
+                    all_params["multi_scale"] = task_specific_params["multi_scale"]
+                if task_specific_params.get("scales") is not None:
+                    all_params["scales"] = task_specific_params["scales"]
+            elif task_type.lower() == "detection":
+                # Detection-specific parameters
+                for param in [
+                    "num_classes",
+                    "multi_scale",
+                    "scales",
+                    "bbox_loss_coef",
+                    "class_loss_coef",
+                    "giou_loss_coef",
+                    "num_queries",
+                ]:
+                    if task_specific_params.get(param) is not None:
+                        all_params[param] = task_specific_params[param]
+            model = create_model(model_name, task_type, **all_params)
     # Setup DeepSpeed if available and beneficial
     use_deepspeed = (
         DEEPSPEED_AVAILABLE

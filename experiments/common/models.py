@@ -296,8 +296,15 @@ class RATDetectionModel(nn.Module):
         # and handle special parameter mappings
         filtered_kwargs = {}
         for key, value in kwargs.items():
-            if key in ["multi_scale", "scales", "num_queries"]:
-                # These are handled at the model level or data loader level
+            if key in [
+                "multi_scale",
+                "scales",
+                "num_queries",
+                "bbox_loss_coef",
+                "class_loss_coef",
+                "giou_loss_coef",
+            ]:
+                # These are handled at the model level or data loader level, not by the transformer
                 continue
             elif key == "sga_attention_type":
                 # Map sga_attention_type to sga_attention_type for the transformer

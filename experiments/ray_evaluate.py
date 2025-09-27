@@ -56,20 +56,88 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def create_rat_model(model_config):
+def create_rat_model(model_config, task_type="segmentation"):
     """
     Factory function to create a ResolutionAwareTransformer model.
-    Handles import and instantiation.
+    Handles import and instantiation. For RoPE mode and task-specific parameters,
+    uses wrapper models to ensure proper spacing handling.
     """
-    try:
-        from resolution_aware_transformer import ResolutionAwareTransformer
+    # Extract task-specific parameters
+    from ray_train import TASK_SPECIFIC_KEYS as task_specific_keys
 
-        return ResolutionAwareTransformer(**model_config)
-    except ImportError:
-        logger.warning(
-            "Could not import ResolutionAwareTransformer. Make sure the package is installed."
-        )
-        raise
+    task_specific_params = {}
+
+    filtered_config = model_config.copy()
+    # Ensure 'name' is included for model selection
+    keys_to_extract = list(task_specific_keys) + ["name"]
+    for key in keys_to_extract:
+        if key in filtered_config:
+            task_specific_params[key] = filtered_config.pop(key)
+
+    # Handle positional_encoding parameter mapping
+    positional_encoding = filtered_config.pop("positional_encoding", None)
+    use_rope_mode = False
+    if positional_encoding:
+        if positional_encoding == "rose":
+            filtered_config["learnable_rose"] = True
+        elif positional_encoding == "rope":
+            filtered_config["learnable_rose"] = False
+            use_rope_mode = True
+        elif positional_encoding in ["absolute", "none"]:
+            filtered_config["learnable_rose"] = False
+            filtered_config["rotary_ratio"] = 0.0
+
+    # Use wrapper models when we have task-specific parameters or RoPE mode
+    # This ensures proper handling of multi_scale, num_classes, and RoPE spacing
+    if (
+        task_specific_params.get("num_classes") is not None
+        or task_specific_params.get("multi_scale")
+        or use_rope_mode
+    ):
+
+        # Use wrapper models for proper parameter handling
+        # Filter parameters based on task type to avoid passing incompatible parameters
+        all_params = filtered_config.copy()
+
+        # Add positional encoding back if it was specified
+        if positional_encoding:
+            all_params["positional_encoding"] = positional_encoding
+
+        # Add task-specific parameters based on task type
+        if task_type.lower() == "segmentation":
+            # Segmentation-specific parameters
+            if task_specific_params.get("num_classes") is not None:
+                all_params["num_classes"] = task_specific_params["num_classes"]
+            if task_specific_params.get("multi_scale") is not None:
+                all_params["multi_scale"] = task_specific_params["multi_scale"]
+            if task_specific_params.get("scales") is not None:
+                all_params["scales"] = task_specific_params["scales"]
+
+        elif task_type.lower() == "detection":
+            # Detection-specific parameters
+            from common.models import DETECTION_SPECIFIC_PARAMS
+
+            for param in DETECTION_SPECIFIC_PARAMS:
+                if task_specific_params.get(param) is not None:
+                    all_params[param] = task_specific_params[param]
+
+        # Normalize model name to handle variations like 'rat_detection' → 'rat'
+        model_name = task_specific_params.get("name", "rat")
+        if model_name.startswith("rat"):
+            model_name = "rat"
+        return create_model(model_name, task_type, **all_params)
+
+    else:
+        # Direct instantiation for simple cases
+        try:
+            from resolution_aware_transformer import ResolutionAwareTransformer
+
+            return ResolutionAwareTransformer(**filtered_config)
+        except ImportError:
+            logger.warning(
+                "Could not import ResolutionAwareTransformer. Make sure the package is installed."
+            )
+            raise
 
 
 @dataclass
@@ -581,7 +649,10 @@ def run_ablation_study(
             model_config = base_config["model"].copy()
             model_config.update(ablation_configs[i].get("model", {}))
 
-            model = create_rat_model(model_config)
+            # Get task type early to pass to create_rat_model
+            task_type = base_config.get("task_type", "segmentation")
+
+            model = create_rat_model(model_config, task_type)
 
             # Load checkpoint
             checkpoint = torch.load(checkpoint_path, map_location="cpu")
@@ -591,7 +662,6 @@ def run_ablation_study(
             model = model.to(device)
 
             # Create evaluation dataset
-            task_type = base_config.get("task_type", "segmentation")
 
             if task_type == "segmentation":
                 # ISICDataset already imported from common.datasets
@@ -668,7 +738,7 @@ def evaluation_function(config: Dict[str, Any]):
     task_type = config.get("task_type", "segmentation")
 
     try:
-        model = create_rat_model(model_config)
+        model = create_rat_model(model_config, task_type)
     except ImportError:
         model = create_model(model_config.pop("name", "rat"), task_type, **model_config)
 

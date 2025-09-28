@@ -69,6 +69,30 @@ EXPERIMENTS_DIR = Path(__file__).parent
 sys.path.insert(0, str(EXPERIMENTS_DIR / "common"))
 
 
+# Configure distributed training environment variables for cluster stability
+def setup_distributed_environment():
+    """Configure environment variables for stable distributed training on clusters."""
+    # NCCL timeout configuration (extend from default 30 minutes to 2 hours)
+    os.environ.setdefault("NCCL_TIMEOUT_S", "7200")
+    os.environ.setdefault("NCCL_BLOCKING_WAIT", "1")
+    os.environ.setdefault("NCCL_ASYNC_ERROR_HANDLING", "1")
+
+    # Threading optimization for cluster environments
+    os.environ.setdefault("OMP_NUM_THREADS", "4")
+    os.environ.setdefault("MKL_NUM_THREADS", "4")
+
+    # CUDA optimizations
+    os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "0")  # Allow async kernel launches
+
+    # Debugging (can be disabled for production)
+    if os.environ.get("RAT_DEBUG_NCCL", "0") == "1":
+        os.environ["NCCL_DEBUG"] = "INFO"
+
+
+# Setup distributed environment early
+setup_distributed_environment()
+
+
 # Setup logging (safe for Ray workers)
 def setup_logging():
     """Setup logging that works safely in Ray workers."""
@@ -1339,6 +1363,18 @@ def train_function(config: Dict[str, Any]):
     Optimized training function with DeepSpeed and automatic batch sizing.
     This replaces our complex UnifiedTrainer class with intelligent optimization.
     """
+    # Setup NCCL timeout and communication parameters early
+    os.environ["NCCL_TIMEOUT_S"] = "7200"  # 2 hours instead of 30 minutes
+    os.environ["NCCL_BLOCKING_WAIT"] = (
+        "1"  # Enable blocking wait for better error reporting
+    )
+    os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "1"  # Better async error handling
+    os.environ["NCCL_DEBUG"] = "INFO"  # Enable NCCL debug logging
+
+    # Set optimal threading for cluster environments
+    os.environ["OMP_NUM_THREADS"] = "4"  # Prevent OMP threading conflicts
+    os.environ["MKL_NUM_THREADS"] = "4"
+
     # Setup logging safely for Ray workers
     worker_logger = setup_logging()
 
@@ -1358,7 +1394,9 @@ def train_function(config: Dict[str, Any]):
     rank = train.get_context().get_local_rank()
     world_size = train.get_context().get_world_size()
 
-    worker_logger.info(f"Worker {rank}/{world_size} starting optimized training")
+    worker_logger.info(
+        f"Worker {rank}/{world_size} starting optimized training with NCCL timeout={os.environ.get('NCCL_TIMEOUT_S')}s"
+    )
 
     # Setup directories
     dirs = setup_directories(config)
@@ -1836,8 +1874,21 @@ def train_rat_with_ray(
         resources_per_worker={"CPU": num_cpus_per_gpu, "GPU": 1},
     )
 
-    # Prepare torch config for DeepSpeed if applicable
+    # Prepare torch config with proper distributed training timeouts
     torch_config = None
+    if DEEPSPEED_AVAILABLE:
+        try:
+            torch_config = TorchConfig(
+                backend="nccl",
+                timeout_s=7200,  # 2 hours timeout for NCCL operations
+                init_method="env://",
+            )
+        except Exception as e:
+            logger.warning(f"Could not create TorchConfig, using fallback: {e}")
+            # Fallback: ensure environment variables are set
+            os.environ["NCCL_TIMEOUT_S"] = "7200"
+            torch_config = TorchConfig(backend="nccl") if DEEPSPEED_AVAILABLE else None
+
     use_deepspeed = (
         DEEPSPEED_AVAILABLE
         and num_gpus > 1
@@ -1845,7 +1896,9 @@ def train_rat_with_ray(
     )
 
     if use_deepspeed:
-        logger.info("Configuring Ray Train with DeepSpeed integration...")
+        logger.info(
+            "Configuring Ray Train with DeepSpeed integration and extended NCCL timeouts..."
+        )
 
         # Get GPU memory info for batch size calculation
         if torch.cuda.is_available():
@@ -1886,16 +1939,14 @@ def train_rat_with_ray(
         ),
     )
 
-    # Create Ray Train trainer with DeepSpeed support
+    # Create Ray Train trainer with DeepSpeed support and distributed training timeouts
     trainer_kwargs = {
         "train_loop_per_worker": train_function,
         "train_loop_config": config,
         "scaling_config": scaling_config,
         "run_config": run_config,
+        "torch_config": torch_config,  # Always include torch_config for proper timeout handling
     }
-
-    if torch_config:
-        trainer_kwargs["torch_config"] = torch_config
 
     trainer = TorchTrainer(**trainer_kwargs)
 

@@ -1,0 +1,100 @@
+# Medical Segmentation Experiment Configuration - ISIC 2018 (Cluster Optimized)
+# This configuration includes fixes for distributed training timeout issues
+# Run with: python ray_train.py --config configs/medical_segmentation_cluster.yaml --num-gpus 4
+
+# Experiment metadata
+experiment_name: "rat_medical_segmentation_isic2018_cluster"
+description: "Resolution Aware Transformer for ISIC 2018 skin lesion segmentation - cluster optimized with extended timeouts"
+task_type: "segmentation"
+
+# Random seed for reproducibility
+seed: 42
+
+# Dataset configuration
+data:
+  dataset_name: "isic2018"
+  dataset_url: "https://challenge.isic-archive.com/data/#2018"
+  local_data_dir: "/tmp/datasets/isic2018"
+  image_size: 256
+  train_split: "train"
+  val_split: "val"
+  
+  # Extended download configuration for cluster environments
+  download_timeout_factor: 5  # Increased timeout factor for cluster networks
+  min_download_timeout: 60    # Minimum timeout in seconds
+  max_download_timeout: 7200  # Maximum timeout in seconds (2 hours)
+  
+  # Data augmentation (similar to ISIC baselines)
+  augmentation:
+    random_flip: 0.5
+    random_rotation: 15
+    color_jitter: 0.1
+    elastic_transform: 0.1
+    normalize:
+      mean: [0.485, 0.456, 0.406]
+      std: [0.229, 0.224, 0.225]
+
+# Model configuration - optimized for cluster training
+model:
+  name: "rat"
+  spatial_dims: 2
+  input_features: 3
+  feature_dims: 128  # Reduced for memory efficiency
+  num_blocks: 2      # Reduced for faster training
+  sga_attention_type: "dense"
+  multi_scale: false  # Disabled for initial testing
+  
+  # Spacing configuration for medical images
+  input_spacing: [1.0, 1.0]  # Pixel spacing in mm
+  target_spacing: [1.0, 1.0]
+
+# Training configuration with cluster optimizations
+training:
+  # Batch size will be automatically optimized based on GPU memory
+  target_effective_batch_size: 16  # Reduced target for stability
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  epochs: 10  # Reduced for testing
+  
+  # Gradient handling
+  grad_clip: 1.0
+  gradient_accumulation_steps: 1  # Will be auto-calculated
+  
+  # Scheduler
+  scheduler: "cosine"
+  
+  # DeepSpeed configuration
+  use_deepspeed: true
+  deepspeed:
+    zero_stage: 2
+    cpu_offload: false
+    fp16: true
+    
+  # Distributed training timeouts (NEW)
+  distributed:
+    nccl_timeout_s: 7200      # 2 hours for NCCL operations
+    nccl_blocking_wait: true  # Better error reporting
+    nccl_async_error_handling: true
+    omp_num_threads: 4        # Prevent threading conflicts
+
+# Loss configuration
+loss:
+  type: "dice"
+  dice_weight: 1.0
+  bce_weight: 0.5
+
+# Metrics configuration
+metrics:
+  - "dice"
+  - "iou"
+  - "pixel_accuracy"
+
+# Results configuration
+results:
+  save_model: true
+  save_predictions: false  # Disabled for faster testing
+  tensorboard_logging: true
+  
+  # Checkpoint configuration
+  checkpoint_every: 2  # Save checkpoint every 2 epochs
+  keep_top_k: 3

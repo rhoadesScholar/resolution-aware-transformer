@@ -74,14 +74,18 @@ def create_rat_model(model_config, task_type="segmentation"):
         if key in filtered_config:
             task_specific_params[key] = filtered_config.pop(key)
 
-    # Handle positional_encoding parameter mapping
+    # Handle positional_encoding parameter mapping - simplified with new API
     positional_encoding = filtered_config.pop("positional_encoding", None)
     use_rope_mode = False
     if positional_encoding:
         if positional_encoding == "rose":
             filtered_config["learnable_rose"] = True
+            filtered_config["rose_initial_scaling"] = "log"
         elif positional_encoding == "rope":
-            filtered_config["learnable_rose"] = False
+            filtered_config["learnable_rose"] = True  # Still use rotary embeddings
+            filtered_config["rose_initial_scaling"] = (
+                "rope"  # New API makes RoPE simple
+            )
             use_rope_mode = True
         elif positional_encoding in ["absolute", "none"]:
             filtered_config["learnable_rose"] = False

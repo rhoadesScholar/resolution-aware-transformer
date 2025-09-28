@@ -237,6 +237,7 @@ def create_deepspeed_config(
     model_config: Dict[str, Any],
     training_config: Dict[str, Any],
     batch_config: Dict[str, int],
+    world_size: int = 1,
 ) -> Dict[str, Any]:
     """
     Create DeepSpeed configuration for Ray Train integration.
@@ -245,6 +246,7 @@ def create_deepspeed_config(
         model_config: Model configuration
         training_config: Training configuration
         batch_config: Batch sizing configuration
+        world_size: Number of GPUs/processes in the distributed setup
 
     Returns:
         DeepSpeed configuration dictionary
@@ -253,8 +255,26 @@ def create_deepspeed_config(
     model_memory = estimate_model_memory(model_config)
     zero_stage = 3 if model_memory > 4.0 else 2  # Use stage 3 for large models
 
+    # Calculate correct train_batch_size for DeepSpeed
+    # DeepSpeed expects: train_batch_size = micro_batch_per_gpu * gradient_accumulation_steps * world_size
+    train_batch_size = (
+        batch_config["batch_size"]
+        * batch_config["gradient_accumulation_steps"]
+        * world_size
+    )
+
+    logger.info(f"DeepSpeed configuration:")
+    logger.info(f"  micro_batch_per_gpu: {batch_config['batch_size']}")
+    logger.info(
+        f"  gradient_accumulation_steps: {batch_config['gradient_accumulation_steps']}"
+    )
+    logger.info(f"  world_size: {world_size}")
+    logger.info(
+        f"  train_batch_size: {train_batch_size} ({batch_config['batch_size']} * {batch_config['gradient_accumulation_steps']} * {world_size})"
+    )
+
     deepspeed_config = {
-        "train_batch_size": batch_config["effective_batch_size"],
+        "train_batch_size": train_batch_size,
         "train_micro_batch_size_per_gpu": batch_config["batch_size"],
         "gradient_accumulation_steps": batch_config["gradient_accumulation_steps"],
         # ZeRO optimization
@@ -1398,14 +1418,16 @@ def train_function(config: Dict[str, Any]):
         "num_queries": model_config.pop("num_queries", None),
     }
 
-    # Handle positional_encoding parameter mapping
+    # Handle positional_encoding parameter mapping - simplified with new API
     positional_encoding = model_config.pop("positional_encoding", None)
     use_rope_mode = False
     if positional_encoding:
         if positional_encoding == "rose":
             model_config["learnable_rose"] = True
+            model_config["rose_initial_scaling"] = "log"
         elif positional_encoding == "rope":
-            model_config["learnable_rose"] = False
+            model_config["learnable_rose"] = True  # Still use rotary embeddings
+            model_config["rose_initial_scaling"] = "rope"  # New API makes RoPE simple
             use_rope_mode = True
         elif positional_encoding in ["absolute", "none"]:
             model_config["learnable_rose"] = False
@@ -1489,7 +1511,7 @@ def train_function(config: Dict[str, Any]):
 
         # Create DeepSpeed configuration
         deepspeed_config = create_deepspeed_config(
-            model_config, training_config, batch_config
+            model_config, training_config, batch_config, world_size
         )
 
         # Initialize DeepSpeed engine

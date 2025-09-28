@@ -61,10 +61,11 @@ training:
 
 # Ablation study configurations
 ablations:
-  # Test different positional encoding methods
+  # Test different positional encoding methods - simplified with new API
   positional_encoding:
     variants: ["rose", "rope", "absolute", "none"]
-    description: "Compare different positional encoding methods"
+    description: "Compare RoSE (log), RoPE (rope), absolute, and no positional encoding"
+    # Note: "rose" uses rose_initial_scaling="log", "rope" uses rose_initial_scaling="rope"
   
   # Test attention mechanisms
   sga_attention_type:

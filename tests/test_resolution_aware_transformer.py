@@ -294,6 +294,52 @@ class TestIntegration:
         assert x.grad is not None
         assert x.grad.shape == x.shape
 
+    def test_rose_initial_scaling_parameter(self):
+        """Test different rose_initial_scaling parameter options."""
+        # Test RoSE (default)
+        model_rose = ResolutionAwareTransformer(
+            spatial_dims=2,
+            input_features=3,
+            feature_dims=32,
+            num_blocks=1,
+            sga_attention_type=["dense"],
+            rose_initial_scaling="log",  # RoSE default
+        )
+        assert model_rose.rose_initial_scaling == "log"
+
+        # Test RoPE mode
+        model_rope = ResolutionAwareTransformer(
+            spatial_dims=2,
+            input_features=3,
+            feature_dims=32,
+            num_blocks=1,
+            sga_attention_type=["dense"],
+            rose_initial_scaling="rope",  # Standard RoPE
+        )
+        assert model_rope.rose_initial_scaling == "rope"
+
+        # Test other scaling modes
+        for scaling in ["identity", "linear", "power"]:
+            model = ResolutionAwareTransformer(
+                spatial_dims=2,
+                input_features=3,
+                feature_dims=32,
+                num_blocks=1,
+                sga_attention_type=["dense"],
+                rose_initial_scaling=scaling,
+            )
+            assert model.rose_initial_scaling == scaling
+
+        # Verify models can forward pass
+        x = torch.randn(1, 3, 16, 16)
+        with torch.no_grad():
+            out_rose = model_rose(x)
+            out_rope = model_rope(x)
+
+        assert isinstance(out_rose, list)
+        assert isinstance(out_rope, list)
+        assert len(out_rose) == len(out_rope) == 1
+
 
 # Fixtures for common test data
 @pytest.fixture

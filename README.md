@@ -45,6 +45,7 @@ This architecture is particularly effective for:
 | `kernel_size` | Convolution kernel size for downsampling | 7 |
 | `mlp_ratio` | MLP hidden dimension ratio | 4 |
 | `learnable_rose` | Use learnable rotary embeddings | True |
+| `rose_initial_scaling` | Initial scaling transformation mode: "log" (RoSE default), "rope" (standard RoPE), "identity"/"linear"/"power" (other variants), or None | "log" |
 
 ## Installation
 

@@ -153,7 +153,7 @@ class DetectionHead(nn.Module):
 
 
 class RATSegmentationModel(nn.Module):
-    """Resolution Aware Transformer for segmentation."""
+    """ResolutionAwareTransformer model for segmentation tasks."""
 
     def __init__(
         self,
@@ -161,10 +161,48 @@ class RATSegmentationModel(nn.Module):
         input_features: int = 3,
         feature_dims: int = 128,
         num_blocks: int = 4,
-        num_classes: int = 1,
-        sga_attention_type: str = "dense",
+        num_classes: int = 2,
+        sga_attention_type: str | Sequence[str] = "dense",
         **kwargs,
     ):
+        super().__init__()
+
+        # Filter kwargs for ResolutionAwareTransformer
+        filtered_kwargs = {}
+        for key, value in kwargs.items():
+            if key in [
+                "multi_scale",
+                "num_classes",
+            ]:  # These are handled here or at data loader level
+                continue
+            elif key == "sga_attention_type":
+                # Map sga_attention_type to sga_attention_type for the transformer
+                filtered_kwargs["sga_attention_type"] = value
+            elif key == "positional_encoding":
+                # Handle different positional encoding types
+                if value == "rose":
+                    filtered_kwargs["learnable_rose"] = True
+                    filtered_kwargs["rose_initial_scaling"] = "log"
+                elif value == "rope":
+                    # RoPE: Use standard RoPE initialization
+                    filtered_kwargs["learnable_rose"] = True
+                    filtered_kwargs["rose_initial_scaling"] = "rope"
+                    # Store this so we can handle it in forward pass
+                    self.use_rope_mode = True
+                elif value == "absolute":
+                    # Absolute: Disable rotary embeddings entirely
+                    filtered_kwargs["learnable_rose"] = False
+                    filtered_kwargs["rotary_ratio"] = 0.0
+                elif value == "none":
+                    # No positional encoding
+                    filtered_kwargs["learnable_rose"] = False
+                    filtered_kwargs["rotary_ratio"] = 0.0
+                else:
+                    # Default to RoSE
+                    filtered_kwargs["learnable_rose"] = True
+                    filtered_kwargs["rose_initial_scaling"] = "log"
+            else:
+                filtered_kwargs[key] = value
         super().__init__()
 
         if ResolutionAwareTransformer is None:
@@ -184,9 +222,11 @@ class RATSegmentationModel(nn.Module):
                 # Handle different positional encoding types
                 if value == "rose":
                     filtered_kwargs["learnable_rose"] = True
+                    filtered_kwargs["initial_scaling"] = "log"
                 elif value == "rope":
-                    # RoPE: Use standard rotary embeddings without spatial scaling
-                    filtered_kwargs["learnable_rose"] = False
+                    # RoPE: Use standard RoPE initialization
+                    filtered_kwargs["learnable_rose"] = True
+                    filtered_kwargs["initial_scaling"] = "rope"
                     # Store this so we can handle it in forward pass
                     self.use_rope_mode = True
                 elif value == "absolute":
@@ -200,6 +240,7 @@ class RATSegmentationModel(nn.Module):
                 else:
                     # Default to RoSE
                     filtered_kwargs["learnable_rose"] = True
+                    filtered_kwargs["initial_scaling"] = "log"
             else:
                 filtered_kwargs[key] = value
 
@@ -313,9 +354,11 @@ class RATDetectionModel(nn.Module):
                 # Handle different positional encoding types
                 if value == "rose":
                     filtered_kwargs["learnable_rose"] = True
+                    filtered_kwargs["rose_initial_scaling"] = "log"
                 elif value == "rope":
-                    # RoPE: Use standard rotary embeddings without spatial scaling
-                    filtered_kwargs["learnable_rose"] = False
+                    # RoPE: Use standard RoPE initialization
+                    filtered_kwargs["learnable_rose"] = True
+                    filtered_kwargs["rose_initial_scaling"] = "rope"
                     # Store this so we can handle it in forward pass
                     self.use_rope_mode = True
                 elif value == "absolute":
@@ -329,6 +372,7 @@ class RATDetectionModel(nn.Module):
                 else:
                     # Default to RoSE
                     filtered_kwargs["learnable_rose"] = True
+                    filtered_kwargs["rose_initial_scaling"] = "log"
             else:
                 filtered_kwargs[key] = value
 

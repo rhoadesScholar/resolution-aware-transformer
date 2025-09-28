@@ -146,9 +146,10 @@ Multi-resolution processing with spatial awareness significantly improves perfor
 ### Phase 2: Ablation Studies
 
 #### 2.1 Positional Encoding Comparison
-- **Variants**: RoSE (learnable), RoPE (conventional), Absolute PE, No PE
+- **Variants**: RoSE (rose_initial_scaling="log"), RoPE (rose_initial_scaling="rope"), Absolute PE, No PE
+- **Configuration**: Simplified with new `rose_initial_scaling` parameter - RoPE mode is now just `rose_initial_scaling="rope"`
 - **Evaluation**: Performance on both medical segmentation and object detection
-- **Rationale**: Validate the effectiveness of spatially-aware rotary embeddings
+- **Rationale**: Validate the effectiveness of spatially-aware rotary embeddings vs standard RoPE
 
 #### 2.2 Attention Mechanism Analysis
 - **Variants**: Dense SGA only, Sparse SGA only, Mixed (Dense+Sparse), Standard Multi-Head Attention

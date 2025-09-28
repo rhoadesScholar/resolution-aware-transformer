@@ -48,11 +48,17 @@ class ResolutionAwareTransformer(torch.nn.Module):
             allowing the rotary spatial embeddings to adapt to the data. This can
             improve performance when the spatial frequency content varies across
             datasets or tasks. Set to False to use fixed scaling.
-        rose_log_scaling: Whether to use log scaling for the rotary spatial embeddings
-            (default is True).
-            If True, the scaling factors for the rotary spatial embeddings are
-            parameterized in log-space, which can improve stability and allow for
-            a wider dynamic range. Set to False to use linear scaling.
+        rose_initial_scaling: Initial scaling transformation mode for rotary spatial
+            embeddings (default is "log").
+            Passed as `rose_initial_scaling` to SpatialGroupingAttention layers and as
+            `initial_scaling` to RoSE blocks.
+            Options:
+            - "log": Initialize for logarithmic scaling (a=0, b=c=d=1)
+            - "rope": Initialize for standard RoPE behavior (a=b=c=0, d=1)
+            - "identity", "linear", "power", or None: Initialize for identity/power
+              scaling (a=b=d=1, c=0)
+            Works with both learnable_scale=True (learnable parameters) and
+            learnable_scale=False (fixed parameters).
         init_jitter_std: Standard deviation for initial jitter in the rotary
             embeddings (default is 0.02).
             Controls the amount of random noise added to the initial rotary
@@ -91,7 +97,7 @@ class ResolutionAwareTransformer(torch.nn.Module):
         base_theta: float = 1e4,
         learnable_rose: bool = True,
         learnable_rose_scaling: bool = True,
-        rose_log_scaling: bool = True,
+        rose_initial_scaling: str = "log",
         init_jitter_std: float = 0.02,
         rotary_ratio: float = 0.5,
         frequency_scaling: str = "sqrt",
@@ -142,7 +148,7 @@ class ResolutionAwareTransformer(torch.nn.Module):
         self.rotary_ratio = rotary_ratio
         self.frequency_scaling = frequency_scaling
         self.learnable_rose_scaling = learnable_rose_scaling
-        self.rose_log_scaling = rose_log_scaling
+        self.rose_initial_scaling = rose_initial_scaling
         if leading_tokens > 0:
             self.leading_tokens = torch.nn.Parameter(
                 torch.rand((1, leading_tokens, feature_dims))
@@ -183,7 +189,7 @@ class ResolutionAwareTransformer(torch.nn.Module):
             "rotary_ratio": rotary_ratio,
             "frequency_scaling": frequency_scaling,
             "learnable_rose_scaling": learnable_rose_scaling,
-            "rose_log_scaling": rose_log_scaling,
+            "rose_initial_scaling": rose_initial_scaling,
             "spacing": self._default_spacing,
         }
         mr_attn_kwargs = {
@@ -200,7 +206,7 @@ class ResolutionAwareTransformer(torch.nn.Module):
             "init_jitter_std": init_jitter_std,
             "frequency_scaling": frequency_scaling,
             "learnable_scale": learnable_rose_scaling,
-            "log_scale": rose_log_scaling,
+            "initial_scaling": rose_initial_scaling,
             "rotary_ratio": rotary_ratio,
         }
         for n in range(num_blocks):

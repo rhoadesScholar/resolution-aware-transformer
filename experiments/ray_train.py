@@ -1591,23 +1591,25 @@ def train_function(config: Dict[str, Any]):
             # Initialize DeepSpeed engine with timeout protection
             import signal
             import time
-            
+
             def timeout_handler(signum, frame):
-                raise TimeoutError("DeepSpeed initialization timed out after 60 seconds")
-            
+                raise TimeoutError(
+                    "DeepSpeed initialization timed out after 60 seconds"
+                )
+
             # Set a 60-second timeout for DeepSpeed initialization
             signal.signal(signal.SIGALRM, timeout_handler)
             signal.alarm(60)
-            
+
             model_engine, optimizer, _, scheduler = deepspeed.initialize(
                 model=model, config=deepspeed_config
             )
             model = model_engine
-            
+
             # Cancel the timeout
             signal.alarm(0)
             logger.info("✓ DeepSpeed engine initialized successfully")
-            
+
         except (TimeoutError, Exception) as e:
             # Cancel the timeout
             signal.alarm(0)

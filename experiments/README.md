@@ -7,13 +7,11 @@ This directory contains the experimental validation of the Resolution Aware Tran
 ## Experimental Overview
 
 ### Core Hypothesis
-Multi-resolution processing with spatial awareness significantly improves performance on tasks requiring both global context and fine-grained detail, particularly in medical imaging and object detection scenarios.
+Multi-resolution processing with spatial awareness significantly improves performance on tasks requiring both global context and fine-grained detail, particularly in microscopy, medical imaging, and geospatial scenarios.
 
 ### Key Research Questions
-1. **Multi-scale Advantage**: Does multi-resolution processing outperform single-resolution approaches?
-2. **Component Effectiveness**: How do RoSE and SGA components individually contribute to performance?
-3. **Architectural Choices**: What are the optimal architectural parameters (blocks, attention types, feature dimensions)?
-4. **Scale Robustness**: How robust is the model to resolution variations at test time?
+1. **Multi-scale Advantage**: Does multi-resolution, multi-FOV processing outperform single-resolution, single-view approaches?
+2. **Scale Robustness**: How robust is the model to resolution variations at test time?
 
 ## Experiment Structure
 
@@ -35,7 +33,7 @@ Multi-resolution processing with spatial awareness significantly improves perfor
 - **Metrics**: mAP@0.5, mAP@0.5:0.95, mAP for small/medium/large objects
 - **Rationale**: Object detection naturally benefits from multi-scale processing, especially for small objects
 
-### Phase 2: Ablation Studies
+### Phase 2: Ablation & Robustness Studies
 
 #### 2.1 Positional Encoding Comparison
 - **Variants**: RoSE (rose_initial_scaling="log"), RoPE (rose_initial_scaling="rope"), Absolute PE, No PE
@@ -44,7 +42,7 @@ Multi-resolution processing with spatial awareness significantly improves perfor
 - **Rationale**: Validate the effectiveness of spatially-aware rotary embeddings vs standard RoPE
 
 #### 2.2 Attention Mechanism Analysis
-- **Variants**: Dense SGA only, Sparse SGA only, Mixed (Dense+Sparse), Standard Multi-Head Attention
+- **Variants**: Dense SGA only, Sparse SGA only, Mixed (Dense+Sparse)
 - **Analysis**: Attention pattern visualization, computational efficiency
 - **Rationale**: Understand the contribution of spatial grouping attention mechanisms
 
@@ -54,19 +52,6 @@ Multi-resolution processing with spatial awareness significantly improves perfor
   - Dual-resolution (256x256 + 128x128)
   - Multi-resolution (256x256 + 128x128 + 64x64)
 - **Testing**: Evaluate each model on all resolution combinations
-- **Rationale**: Core validation of multi-resolution hypothesis
-
-#### 2.4 Architecture Depth Analysis
-- **Variants**: 2, 4, 6 transformer blocks
-- **Feature Dimensions**: 128, 256
-- **Analysis**: Performance vs. computational cost trade-offs
-- **Rationale**: Determine optimal architecture size for different tasks
-
-### Phase 3: Robustness Analysis
-
-#### 3.1 Resolution Transfer
-- **Setup**: Train on one resolution, test on multiple resolutions
-- **Resolutions**: 128, 256, 512, 1024 pixels
 - **Metric**: Performance degradation across scales
 - **Rationale**: Evaluate model's ability to generalize across different input scales
 

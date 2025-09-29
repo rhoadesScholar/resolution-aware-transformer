@@ -26,6 +26,18 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export OMP_NUM_THREADS=4
 export MKL_NUM_THREADS=4
 
+# NCCL network configuration for cluster stability
+export NCCL_TIMEOUT_S=7200
+export NCCL_SOCKET_TIMEOUT=7200
+export NCCL_CONNECT_TIMEOUT=300
+export NCCL_NET_RETRY_COUNT=5
+export NCCL_SOCKET_IFNAME="^docker0,lo"
+export NCCL_IB_TIMEOUT=23
+export NCCL_IB_RETRY_CNT=7
+
+# Enable NCCL debugging (can be disabled for production)
+export RAT_DEBUG_NCCL=1
+
 # Setup scratch directory for Ray
 USER_SCRATCH="/scratch/$USER"
 echo "=== Directory Setup ==="
@@ -62,10 +74,59 @@ echo "Command: python run_experiment.py --config configs/medical_segmentation.ya
 echo "Started at: $(date)"
 echo ""
 
-# Run the experiment with proper error handling
-python run_experiment.py --config configs/medical_segmentation.yaml --num-gpus 8
+# Run the experiment with proper error handling and fallback
+echo "Attempting distributed training with Ray Train..."
+python ray_train.py --config configs/medical_segmentation.yaml --num-gpus 8
 
 exit_code=$?
+
+# If Ray Train fails with timeout or distributed errors, try simple runner as fallback
+if [ $exit_code -ne 0 ]; then
+    echo ""
+    echo "⚠️  Ray Train failed with exit code $exit_code"
+    echo "🔄 Attempting fallback to simple experiment runner..."
+    echo ""
+    
+    # Disable Ray Train debugging for fallback
+    export RAT_DEBUG_NCCL=0
+    
+    # Run with simple experiment runner (still uses distributed training but without Ray)
+    python run_experiment.py --config configs/medical_segmentation.yaml --num-gpus 8
+    
+    fallback_exit_code=$?
+    
+    if [ $fallback_exit_code -eq 0 ]; then
+        echo "✅ Fallback experiment completed successfully"
+        exit_code=0
+    else
+        echo "❌ Both Ray Train and fallback failed"
+        echo "🚀 Trying proper Ray cluster approach..."
+        
+        # Try the proper Ray cluster approach
+        export RAY_TMPDIR="/scratch/$(whoami)/ray_$(whoami)"
+        mkdir -p "$RAY_TMPDIR"
+        
+        # Start a simple Ray cluster
+        ray start --head --port=6379 --num-cpus=96 --num-gpus=8 --temp-dir="$RAY_TMPDIR" &
+        sleep 10
+        
+        export RAY_ADDRESS="localhost:6379"
+        export WORLD_GPUS=8
+        
+        python experiments/cluster_bootstrap.py --config configs/medical_segmentation.yaml --num-gpus 8
+        ray_cluster_exit_code=$?
+        
+        ray stop
+        
+        if [ $ray_cluster_exit_code -eq 0 ]; then
+            echo "✅ Ray cluster approach completed successfully"
+            exit_code=0
+        else
+            echo "❌ All approaches failed"
+            exit_code=$ray_cluster_exit_code
+        fi
+    fi
+fi
 
 echo ""
 echo "=== Job Completed ==="

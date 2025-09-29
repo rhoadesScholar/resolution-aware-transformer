@@ -77,6 +77,26 @@ def setup_distributed_environment():
     os.environ.setdefault("NCCL_BLOCKING_WAIT", "1")
     os.environ.setdefault("NCCL_ASYNC_ERROR_HANDLING", "1")
 
+    # Additional NCCL configurations for cluster environments
+    os.environ.setdefault("NCCL_SOCKET_TIMEOUT", "7200")  # Socket timeout in seconds
+    os.environ.setdefault(
+        "NCCL_CONNECT_TIMEOUT", "300"
+    )  # Connection timeout in seconds
+    os.environ.setdefault(
+        "NCCL_NET_RETRY_COUNT", "5"
+    )  # Number of retries for network operations
+    os.environ.setdefault("NCCL_MAX_NCHANNELS", "4")  # Limit channels for stability
+    os.environ.setdefault("NCCL_MIN_NCHANNELS", "1")  # Minimum channels
+
+    # Network interface selection (auto-detect best interface)
+    os.environ.setdefault(
+        "NCCL_SOCKET_IFNAME", "^docker0,lo"
+    )  # Exclude docker and loopback
+
+    # IB/RoCE optimizations if available
+    os.environ.setdefault("NCCL_IB_TIMEOUT", "23")  # InfiniBand timeout
+    os.environ.setdefault("NCCL_IB_RETRY_CNT", "7")  # InfiniBand retry count
+
     # Threading optimization for cluster environments
     os.environ.setdefault("OMP_NUM_THREADS", "4")
     os.environ.setdefault("MKL_NUM_THREADS", "4")
@@ -1369,7 +1389,16 @@ def train_function(config: Dict[str, Any]):
         "1"  # Enable blocking wait for better error reporting
     )
     os.environ["NCCL_ASYNC_ERROR_HANDLING"] = "1"  # Better async error handling
-    os.environ["NCCL_DEBUG"] = "INFO"  # Enable NCCL debug logging
+
+    # Additional cluster-specific NCCL settings
+    os.environ["NCCL_SOCKET_TIMEOUT"] = "7200"  # Match overall timeout
+    os.environ["NCCL_CONNECT_TIMEOUT"] = "300"  # 5 minutes for initial connection
+    os.environ["NCCL_NET_RETRY_COUNT"] = "5"  # More retries for flaky networks
+
+    # Enable debug logging only if requested (reduces noise)
+    if os.environ.get("RAT_DEBUG_NCCL", "0") == "1":
+        os.environ["NCCL_DEBUG"] = "INFO"  # Enable NCCL debug logging
+        os.environ["NCCL_DEBUG_SUBSYS"] = "ALL"  # Debug all subsystems
 
     # Set optimal threading for cluster environments
     os.environ["OMP_NUM_THREADS"] = "4"  # Prevent OMP threading conflicts
@@ -1841,15 +1870,48 @@ def train_rat_with_ray(
             config=config,
         )
 
-    # Initialize Ray with scratch temp directory (replaces our cluster detection)
+    # Initialize Ray with scratch temp directory and proper timeout handling
     if not ray.is_initialized():
         ray_temp_dir = dirs.get("ray_temp_dir")
-        if ray_temp_dir:
-            logger.info(f"Initializing Ray with custom temp directory: {ray_temp_dir}")
-            ray.init(_temp_dir=ray_temp_dir)
-        else:
-            logger.warning("No scratch temp directory available, using Ray default")
-            ray.init()
+
+        # Check if we should connect to an existing cluster (LSF environment)
+        if "RAY_ADDRESS" in os.environ:
+            logger.info(
+                f"Connecting to existing Ray cluster at {os.environ['RAY_ADDRESS']}"
+            )
+            try:
+                ray.init(address="auto")  # Connect to existing cluster
+            except Exception as e:
+                logger.error(f"Failed to connect to Ray cluster: {e}")
+                logger.info("Falling back to local Ray initialization")
+                # Fall through to local initialization
+
+        # Local Ray initialization (for non-cluster environments)
+        if not ray.is_initialized():
+            try:
+                if ray_temp_dir:
+                    logger.info(
+                        f"Initializing local Ray with custom temp directory: {ray_temp_dir}"
+                    )
+                    ray.init(
+                        _temp_dir=ray_temp_dir,
+                        # Add Ray-specific timeout configurations for cluster stability
+                        object_store_memory=2000000000,  # 2GB object store
+                        _plasma_directory=ray_temp_dir if ray_temp_dir else None,
+                    )
+                else:
+                    logger.warning(
+                        "No scratch temp directory available, using Ray default"
+                    )
+                    ray.init(
+                        object_store_memory=2000000000,  # 2GB object store
+                    )
+            except Exception as e:
+                logger.error(f"Ray initialization failed: {e}")
+                logger.info("This might indicate network or resource contention issues")
+                raise RuntimeError(
+                    f"Could not initialize Ray for distributed training: {e}"
+                ) from e
 
     logger.info(
         f"Training {config.get('experiment_name', 'RAT experiment')} with optimized Ray Train"
@@ -1957,8 +2019,65 @@ def train_rat_with_ray(
     logger.info("✓ GPU memory optimization")
     logger.info("✓ Distributed training across all GPUs")
 
-    # Run training (this is all we need!)
-    result = trainer.fit()
+    # Run training with retry mechanism for NCCL timeout errors
+    max_retries = 2
+    retry_count = 0
+    result = None
+
+    while retry_count <= max_retries:
+        try:
+            logger.info(
+                f"Starting training attempt {retry_count + 1}/{max_retries + 1}..."
+            )
+            result = trainer.fit()
+            break  # Success, exit retry loop
+
+        except Exception as e:
+            retry_count += 1
+            error_str = str(e).lower()
+
+            # Check if this is a NCCL timeout or distributed communication error
+            is_nccl_timeout = any(
+                keyword in error_str
+                for keyword in [
+                    "nccl",
+                    "timeout",
+                    "distributed",
+                    "communication",
+                    "distbackenderror",
+                    "c10d",
+                    "wait timeout",
+                ]
+            )
+
+            if is_nccl_timeout and retry_count <= max_retries:
+                logger.warning(
+                    f"NCCL/distributed error detected (attempt {retry_count}/{max_retries + 1}): {e}"
+                )
+                logger.info(
+                    "Waiting 30 seconds before retry to allow network stabilization..."
+                )
+                time.sleep(30)
+
+                # Increase timeouts for retry attempts
+                os.environ["NCCL_TIMEOUT_S"] = str(
+                    7200 + (retry_count * 1800)
+                )  # Add 30 min per retry
+                os.environ["NCCL_SOCKET_TIMEOUT"] = str(7200 + (retry_count * 1800))
+
+                logger.info(
+                    f"Increased NCCL timeout to {os.environ['NCCL_TIMEOUT_S']}s for retry {retry_count}"
+                )
+                continue
+            else:
+                # Non-NCCL error or max retries reached
+                logger.error(
+                    f"Training failed with non-retryable error or max retries reached: {e}"
+                )
+                raise
+
+    if result is None:
+        raise RuntimeError("Training failed after all retry attempts")
 
     logger.info("Training completed successfully!")
     logger.info(f"Best validation loss: {result.metrics.get('val_loss', 'N/A')}")

@@ -33,7 +33,7 @@ dependencies = [
     # Add your core dependencies here
     "torch",
     "rotary-spatial-embeddings>=2025.9.25.1502",
-    "spatial-grouping-attention>=2025.9.25.1623",
+    "spatial-grouping-attention>=2025.9.29.1947",
 ]
 
 [project.optional-dependencies]

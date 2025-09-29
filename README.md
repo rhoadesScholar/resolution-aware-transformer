@@ -157,6 +157,7 @@ model_3d = ResolutionAwareTransformer(
 
 volume = torch.randn(1, 1, 64, 64, 64)  # [batch, channels, depth, height, width]
 output = model_3d(volume)
+```
 
 ## License
 

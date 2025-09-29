@@ -7,6 +7,7 @@ Based on the CLUSTER_DEBUGGING.md documentation.
 
 import os
 import sys
+from pathlib import Path
 import ray
 from ray.train import ScalingConfig, RunConfig, get_context
 from ray.train.torch import TorchTrainer
@@ -42,20 +43,34 @@ def train_loop_per_worker(cfg):
     # Extract config from the Ray Train config
     config_path = cfg.get("config_path")
     num_gpus = cfg.get("num_gpus")
+    disable_deepspeed = cfg.get("disable_deepspeed", False)
 
     # Make config path absolute if it's relative
     if not os.path.isabs(config_path):
-        # The main working directory should be the repository root
-        repo_root = "/nrs/cellmap/rhoadesj/resolution-aware-transformer"
-        config_path = os.path.join(repo_root, config_path)
+        # The working directory is experiments/, so resolve relative to that
+        experiments_dir = (
+            "/nrs/cellmap/rhoadesj/resolution-aware-transformer/experiments"
+        )
+        config_path = os.path.join(experiments_dir, config_path)
 
     print(f"Loading config from: {config_path}")
+
+    # Verify config file exists
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Config file not found: {config_path}")
 
     # Load and parse the config
     import yaml
 
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
+
+    # Override DeepSpeed setting if disabled
+    if disable_deepspeed:
+        print("DeepSpeed disabled via command line flag")
+        if "training" not in config:
+            config["training"] = {}
+        config["training"]["use_deepspeed"] = False
 
     # Set up environment to mimic the original setup
     os.environ["RANK"] = str(world_rank)
@@ -83,6 +98,11 @@ def main():
     parser.add_argument("--config", required=True, help="Path to config file")
     parser.add_argument("--num-gpus", type=int, default=8, help="Number of GPUs")
     parser.add_argument("--name", default="RAT_training", help="Experiment name")
+    parser.add_argument(
+        "--disable-deepspeed",
+        action="store_true",
+        help="Disable DeepSpeed and use standard distributed training",
+    )
 
     args = parser.parse_args()
 
@@ -90,6 +110,62 @@ def main():
     print(f"Config: {args.config}")
     print(f"GPUs: {args.num_gpus}")
     print(f"World GPUs (from env): {os.environ.get('WORLD_GPUS', 'not set')}")
+    print(f"Working directory: {os.getcwd()}")
+
+    # Check if config file exists in experiments dir
+    config_abs_path = os.path.join(
+        "/nrs/cellmap/rhoadesj/resolution-aware-transformer/experiments", args.config
+    )
+    print(f"Looking for config at: {config_abs_path}")
+    print(f"Config exists: {os.path.exists(config_abs_path)}")
+
+    # Initialize ExperimentTracker for proper organization
+    try:
+        from common.experiment_tracker import ExperimentTracker
+
+        tracker = ExperimentTracker(
+            "/nrs/cellmap/rhoadesj/resolution-aware-transformer/experiments/results"
+        )
+
+        # Create descriptive experiment name with key details
+        import datetime
+
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        config_name = Path(args.config).stem  # e.g., "medical_segmentation"
+        deepspeed_suffix = "_no_ds" if args.disable_deepspeed else "_ds"
+        experiment_name = f"{args.name}_{config_name}_{args.num_gpus}gpu{deepspeed_suffix}_{timestamp}"
+
+        # Register experiment and get organized directory
+        experiment_id = tracker.register_experiment(
+            experiment_name=experiment_name,
+            config_path=config_abs_path,
+            task_type="ray_train_distributed",
+            num_gpus=args.num_gpus,
+            additional_info={
+                "ray_train": True,
+                "deepspeed_disabled": args.disable_deepspeed,
+                "config_file": args.config,
+                "lsf_job_id": os.environ.get("LSB_JOBID", "unknown"),
+                "node_count": 1,
+                "gpus_per_node": args.num_gpus,
+            },
+        )
+
+        # Get the organized experiment directory
+        exp_metadata = tracker.registry["experiments"][experiment_id]
+        organized_storage_path = str(
+            Path(exp_metadata["directory"]).parent.parent
+        )  # Go up to experiments/ level
+
+        print(f"Experiment registered as: {experiment_id}")
+        print(f"Results will be saved to: {organized_storage_path}")
+
+    except ImportError as e:
+        print(f"Warning: Could not import ExperimentTracker: {e}")
+        print("Using default Ray storage path")
+        organized_storage_path = "/nrs/cellmap/rhoadesj/resolution-aware-transformer/experiments/results/experiments"
+        experiment_id = args.name
+        tracker = None
 
     # Connect to the existing Ray cluster (LSF-launched)
     print("Connecting to Ray cluster...")
@@ -111,10 +187,10 @@ def main():
         timeout_s=1800,  # 30 minute timeout for NCCL
     )
 
-    # Configure run settings
+    # Configure run settings with organized storage
     run_config = RunConfig(
-        name=args.name,
-        storage_path=f"/scratch/{os.getenv('USER', 'unknown')}/ray_results",
+        name=experiment_id,
+        storage_path=organized_storage_path,
     )
 
     # Set up the trainer
@@ -123,6 +199,7 @@ def main():
         train_loop_config={
             "config_path": args.config,
             "num_gpus": args.num_gpus,
+            "disable_deepspeed": args.disable_deepspeed,
         },
         scaling_config=scaling,
         torch_config=torch_config,
@@ -134,6 +211,13 @@ def main():
         result = trainer.fit()
         print("Training completed successfully!")
         print("Result:", result)
+
+        # Update experiment status to completed
+        if tracker:
+            tracker.update_experiment_status(
+                experiment_id, "completed", {"ray_result": str(result)}
+            )
+
         return True
 
     except Exception as e:
@@ -141,6 +225,11 @@ def main():
         import traceback
 
         traceback.print_exc()
+
+        # Update experiment status to failed
+        if tracker:
+            tracker.update_experiment_status(experiment_id, "failed", {"error": str(e)})
+
         return False
 
 

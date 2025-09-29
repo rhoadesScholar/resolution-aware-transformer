@@ -1581,11 +1581,46 @@ def train_function(config: Dict[str, Any]):
             model_config, training_config, batch_config, world_size
         )
 
-        # Initialize DeepSpeed engine
-        model_engine, optimizer, _, scheduler = deepspeed.initialize(
-            model=model, config=deepspeed_config
-        )
-        model = model_engine
+        # Add synchronization barrier before DeepSpeed initialization
+        # REMOVED: torch.distributed.barrier() - causes hanging on H100 clusters
+        # Ensure model is on the correct device before DeepSpeed initialization
+        model = model.cuda()
+
+        logger.info("Initializing DeepSpeed engine...")
+        try:
+            # Initialize DeepSpeed engine with timeout protection
+            import signal
+            import time
+            
+            def timeout_handler(signum, frame):
+                raise TimeoutError("DeepSpeed initialization timed out after 60 seconds")
+            
+            # Set a 60-second timeout for DeepSpeed initialization
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(60)
+            
+            model_engine, optimizer, _, scheduler = deepspeed.initialize(
+                model=model, config=deepspeed_config
+            )
+            model = model_engine
+            
+            # Cancel the timeout
+            signal.alarm(0)
+            logger.info("✓ DeepSpeed engine initialized successfully")
+            
+        except (TimeoutError, Exception) as e:
+            # Cancel the timeout
+            signal.alarm(0)
+            logger.error(f"DeepSpeed initialization failed: {e}")
+            # Fallback to regular distributed training
+            logger.info("Falling back to standard distributed training...")
+            model = train.torch.prepare_model(model)
+            optimizer = torch.optim.AdamW(
+                model.parameters(),
+                lr=training_config.get("learning_rate", 1e-4),
+                weight_decay=training_config.get("weight_decay", 0.01),
+            )
+            scheduler = None
 
     else:
         # Ray automatically handles device placement and DDP wrapping

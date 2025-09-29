@@ -113,7 +113,7 @@ if [ $exit_code -ne 0 ]; then
         export RAY_ADDRESS="localhost:6379"
         export WORLD_GPUS=8
         
-        python experiments/cluster_bootstrap.py --config configs/medical_segmentation.yaml --num-gpus 8
+        python cluster_bootstrap.py --config configs/medical_segmentation.yaml --num-gpus 8
         ray_cluster_exit_code=$?
         
         ray stop

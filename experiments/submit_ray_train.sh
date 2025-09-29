@@ -1,7 +1,7 @@
 #!/bin/bash
-#BSUB -J RAT_ray_simple
-#BSUB -o results/lsf_logs/RAT_ray_simple_%J.out
-#BSUB -e results/lsf_logs/RAT_ray_simple_%J.err
+#BSUB -J RAT_ray_train
+#BSUB -o results/lsf_logs/RAT_ray_train_%J.out
+#BSUB -e results/lsf_logs/RAT_ray_train_%J.err
 #BSUB -n 96
 #BSUB -R "span[hosts=1]"
 #BSUB -R "rusage[mem=4000,ngpus_excl_p=8]"
@@ -9,7 +9,7 @@
 #BSUB -gpu "num=8"
 
 # Simple Ray-based training script
-# This avoids the complex multi-node Ray cluster setup
+# This avoids the complex multi-node Ray cluster setup and uses a single-node Ray cluster
 
 echo "=== LSF Job Information ==="
 echo "Job ID: $LSB_JOBID"
@@ -55,8 +55,8 @@ export WORLD_GPUS=8
 
 echo "Ray cluster started, beginning training..."
 
-# Run the cluster bootstrap script
-python experiments/cluster_bootstrap.py --config experiments/configs/medical_segmentation.yaml --num-gpus 8 --name "RAT_simple_ray"
+# Run the cluster bootstrap script (working directory is already experiments/)
+python cluster_bootstrap.py --config configs/medical_segmentation.yaml --num-gpus 8 --name "RAT_ray_train"
 
 exit_code=$?
 
